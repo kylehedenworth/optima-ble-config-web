@@ -1,0 +1,593 @@
+<!doctype html>
+<!--
+Copyright 2022 Google Inc. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="description"
+        content="Sample illustrating the use of Web Bluetooth / Discover Services & Characteristics.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Web Bluetooth / Discover Services & Characteristics Sample</title>
+    <script>
+        // Add a global error event listener early on in the page load, to help ensure that browsers
+        // which don't support specific functionality still end up displaying a meaningful message.
+        window.addEventListener('error', function (error) {
+            if (ChromeSamples && ChromeSamples.setStatus) {
+                console.error(error);
+                ChromeSamples.setStatus(error.message + ' (Your browser may not support this feature.)');
+                error.preventDefault();
+            }
+        });
+    </script>
+    <style>
+        .config_label {
+            /* margin-right: 20px; */
+            font-weight: bold;
+            display: inline-block;
+            width: 150px;
+        }
+        .config_input {
+            width: 50px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h3>Conenct Device:</h3>
+    <form>
+        <button>Select Device</button>
+    </form>
+
+    <h3>Configuration</h3>
+    <p>Config options are <b>application specific</b></p>
+    <div>
+        <span class="config_label">Uplink interval</span>
+        <input class="config_input" type="text" id="inp_uplink" />
+        <button id="but_get_uplink">Read</button>
+        <button id="but_set_uplink">Write</button>
+    </div>
+    <div>
+        <span class="config_label">Sensor interval</span>
+        <input class="config_input" type="text" id="inp_sense" />
+        <button id="but_get_sense">Read</button>
+        <button id="but_set_sense">Write</button>
+    </div>
+    <div>
+        <span class="config_label">Commission state</span>
+        <!-- <input class="config_input" type="text" id="inp_comm" /> -->
+        <input class="config_input" type="checkbox" id="inp_comm" />
+        <button id="but_get_comm">Read</button>
+        <button id="but_set_comm">Write</button>
+    </div>
+    <div>
+        <span class="config_label">GPS interval</span>
+        <input class="config_input" type="text" id="inp_gps" />
+        <button id="but_get_gps">Read</button>
+        <button id="but_set_gps">Write</button>
+    </div>
+    <div>
+        <span class="config_label">Tilt angle trigger</span>
+        <input class="config_input" type="text" id="inp_tilt_trig" />
+        <button id="but_get_tilt_trig">Read</button>
+        <button id="but_set_tilt_trig">Write</button>
+    </div>
+    <div>
+        <span class="config_label">Tilt angle offset</span>
+        <input class="config_input" type="text" id="inp_tilt_off" />
+        <button id="but_get_tilt_off">Read</button>
+        <button id="but_set_tilt_off">Write</button>
+    </div>
+    <div>
+        <span class="config_label">Pulse event enable</span>
+        <input class="config_input" type="checkbox" id="inp_pulse_ev" />
+        <button id="but_get_pulse_ev">Read</button>
+        <button id="but_set_pulse_ev">Write</button>
+    </div>
+    
+    <div>
+        <span class="config_label">Transmit delay</span>
+        <input class="config_input" type="text" id="inp_tx_delay" />
+        <button id="but_get_tx_delay">Read</button>
+        <button id="but_set_tx_delay">Write</button>
+    </div>
+    <div>
+        <span class="config_label">Analog threshold</span>
+        <input class="config_input" type="text" id="inp_an_thresh" />
+        <button id="but_get_an_thresh">Read</button>
+        <button id="but_set_an_thresh">Write</button>
+    </div>
+
+    <div>
+        <span class="config_label">Test action</span>
+        <input class="config_input" type="text" id="inp_test" />
+        <button id="but_set_test">Write</button>
+    </div>
+
+    <h3>Output</h3>
+    <div id="output" class="output">
+        <div id="content"></div>
+        <div id="status"></div>
+        <pre id="log"></pre>
+    </div>
+
+    <script>
+        var ChromeSamples = {
+            log: function () {
+                var line = Array.prototype.slice.call(arguments).map(function (argument) {
+                    return typeof argument === 'string' ? argument : JSON.stringify(argument);
+                }).join(' ');
+
+                document.querySelector('#log').textContent += line + '\n';
+            },
+
+            clearLog: function () {
+                document.querySelector('#log').textContent = '';
+            },
+
+            setStatus: function (status) {
+                document.querySelector('#status').textContent = status;
+            },
+
+            setContent: function (newContent) {
+                var content = document.querySelector('#content');
+                while (content.hasChildNodes()) {
+                    content.removeChild(content.lastChild);
+                }
+                content.appendChild(newContent);
+            }
+        };
+    </script>
+    <script>
+        if (/Chrome\/(\d+\.\d+.\d+.\d+)/.test(navigator.userAgent)) {
+            // Let's log a warning if the sample is not supposed to execute on this
+            // version of Chrome.
+            if (53 > parseInt(RegExp.$1)) {
+                ChromeSamples.setStatus('Warning! Keep in mind this sample has been tested with Chrome ' + 53 + '.');
+            }
+        }
+
+        log = ChromeSamples.log;
+
+        function isWebBluetoothEnabled() {
+            if (navigator.bluetooth) {
+                return true;
+            } else {
+                ChromeSamples.setStatus('Web Bluetooth API is not available.\n' +
+                    'Please make sure the "Experimental Web Platform features" flag is enabled.');
+                return false;
+            }
+        }
+
+        let encoder = new TextEncoder('utf-8');
+        let decoder = new TextDecoder('utf-8');
+
+        /* Document bindings */
+        document.querySelector("#but_get_uplink").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getUplink()
+                .then((s) => {
+                    document.querySelector("#inp_uplink").value = s;
+                });
+        });
+        document.querySelector("#but_set_uplink").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setUplink( parseInt(document.querySelector("#inp_uplink").value) );
+        });
+        
+        document.querySelector("#but_get_sense").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getSenseInt()
+                .then((s) => {
+                    document.querySelector("#inp_sense").value = s;
+                });
+        });
+        document.querySelector("#but_set_sense").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setSenseInt( parseInt(document.querySelector("#inp_sense").value) );
+        });
+
+        document.querySelector("#but_get_comm").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getCommish()
+                .then((s) => {
+                    document.querySelector("#inp_comm").checked = (s == 1);
+                });
+        });
+        document.querySelector("#but_set_comm").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setCommish( parseInt(document.querySelector("#inp_comm").checked ? 1 : 0) );
+        });
+
+        document.querySelector("#but_get_gps").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getGps()
+                .then((s) => {
+                    document.querySelector("#inp_gps").value = s;
+                });
+        });
+        document.querySelector("#but_set_gps").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setGps( parseInt(document.querySelector("#inp_gps").value) );
+        });
+
+        document.querySelector("#but_get_tilt_trig").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getTiltAngle()
+                .then((s) => {
+                    document.querySelector("#inp_tilt_trig").value = s;
+                });
+        });
+        document.querySelector("#but_set_tilt_trig").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setTiltAngle( parseInt(document.querySelector("#inp_tilt_trig").value) );
+        });
+
+        document.querySelector("#but_get_tilt_off").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getTiltOffset()
+                .then((s) => {
+                    document.querySelector("#inp_tilt_off").value = s;
+                });
+        });
+        document.querySelector("#but_set_tilt_off").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setTiltOffset( parseInt(document.querySelector("#inp_tilt_off").value) );
+        });
+
+        document.querySelector("#but_get_pulse_ev").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getPulseEv()
+                .then((s) => {
+                    document.querySelector("#inp_pulse_ev").checked = (s == 1);
+                });
+        });
+        document.querySelector("#but_set_pulse_ev").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setPulseEv( parseInt(document.querySelector("#inp_pulse_ev").checked ? 1 : 0) );
+        });
+
+        document.querySelector("#but_get_tx_delay").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getTxDelay()
+                .then((s) => {
+                    document.querySelector("#inp_tx_delay").value = s;
+                });
+        });
+        document.querySelector("#but_set_tx_delay").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setTxDelay( parseInt(document.querySelector("#inp_tx_delay").value) );
+        });
+
+        document.querySelector("#but_get_an_thresh").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getAnThresh()
+                .then((s) => {
+                    document.querySelector("#inp_an_thresh").value = s;
+                });
+        });
+        document.querySelector("#but_set_an_thresh").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setAnThresh( parseInt(document.querySelector("#inp_an_thresh").value) );
+        });
+
+        document.querySelector("#but_set_test").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setTestAction( parseInt(document.querySelector("#inp_test").value) );
+        });
+
+
+        /* Custom Bluetooth Service UUIDs */
+        //'0000fe40-cc7a-482a-984a-7f2ed5b3e58b'     // EW service
+        const OPTIMA_SERVICE_UUID = '0000fe40-cc7a-482a-984a-7f2ed5b3e58b';
+
+        /* Custom Bluetooth Characteristic UUIDs */
+
+        const CONFIG_TILT_INT_UUID       = 0xCC01;
+        const CONFIG_HB_INT_UUID         = 0xCC02;
+        const CONFIG_GPS_INT_UUID        = 0xCC03;
+        const CONFIG_TILT_OFFSET_UUID    = 0xCC08;
+        const CONFIG_TILT_ANGLE_UUID     = 0xCC09;
+        const CONFIG_COMMISSION_UUID     = 0xCC0A;
+        const CONFIG_CONTROL_UUID        = 0xCC0B;
+        const CONFIG_TRANS_DELAY_UUID    = 0xCC0C;
+        const CONFIG_ANALOG_THRESH_UUID  = 0xCC0D;
+        const CONFIG_PULSE_EN_UUID       = 0xCC0E;
+
+        class EWOptima {
+            constructor() {
+                this.device = null;
+                this.server = null;
+                this._characteristics = new Map();
+                this._debug = true;
+            }
+            connect() {
+                let options = {
+                    // filters: [
+                    //     { services: [OPTIMA_SERVICE_UUID] }
+                    // ],
+                    acceptAllDevices: true,
+                    optionalServices: [
+                        'battery_service',
+                        'device_information',
+                        '8d53dc1d-1db7-4cd3-868b-8a527460aa84', // SMP
+                        OPTIMA_SERVICE_UUID
+                    ]
+                };
+
+                return navigator.bluetooth.requestDevice(options)
+                    .then(device => {
+                        this.device = device;
+                        return device.gatt.connect();
+                    })
+                    .then(server => {
+                        this.server = server;
+                        return Promise.all([
+                            server.getPrimaryService(OPTIMA_SERVICE_UUID).then(service => {
+                                return Promise.all([
+                                    this._cacheCharacteristic(service, CONFIG_TILT_INT_UUID     ),
+                                    this._cacheCharacteristic(service, CONFIG_HB_INT_UUID       ),
+                                    this._cacheCharacteristic(service, CONFIG_GPS_INT_UUID      ),
+                                    this._cacheCharacteristic(service, CONFIG_TILT_OFFSET_UUID  ),
+                                    this._cacheCharacteristic(service, CONFIG_TILT_ANGLE_UUID   ),
+                                    this._cacheCharacteristic(service, CONFIG_COMMISSION_UUID   ),
+                                    this._cacheCharacteristic(service, CONFIG_CONTROL_UUID      ),
+                                    this._cacheCharacteristic(service, CONFIG_TRANS_DELAY_UUID  ),
+                                    this._cacheCharacteristic(service, CONFIG_ANALOG_THRESH_UUID),
+                                    this._cacheCharacteristic(service, CONFIG_PULSE_EN_UUID     ),
+                                ])
+                            }),
+                            server.getPrimaryService('battery_service').then(service => {
+                                return this._cacheCharacteristic(service, 'battery_level')
+                            }),
+                            server.getPrimaryService('device_information').then(service => {
+                                return Promise.all([
+                                    this._cacheCharacteristic(service, 'firmware_revision_string'),
+                                    this._cacheCharacteristic(service, 'manufacturer_name_string'),
+                                ])
+                            }),
+                        ]);
+                    })
+            }
+
+            /* Optima Service */  
+            getDeviceName() {
+                return this._readCharacteristicValue(CANDLE_DEVICE_NAME_UUID)
+                    .then(this._decodeString);
+            }
+            setDeviceName(name) {
+                let data = this._encodeString(name);
+                return this._writeCharacteristicValue(CANDLE_DEVICE_NAME_UUID, data)
+            }
+            // Uplink
+            getUplink() {
+                return this._readCharacteristicValue(CONFIG_HB_INT_UUID)
+                    .then(data => data.getUint8(0));
+            }
+            setUplink(interval) {
+                return this._writeCharacteristicValue(CONFIG_HB_INT_UUID, new Uint8Array(interval))
+            }
+            // Sense/tilt interval
+            getSenseInt() {
+                return this._readCharacteristicValue(CONFIG_TILT_INT_UUID)
+                    .then(data => data.getUint16(0));
+            }
+            setSenseInt(interval) {
+                return this._writeCharacteristicValue(CONFIG_TILT_INT_UUID, new Uint16Array(interval))
+            }
+            // Commission enable
+            getCommish() {
+                return this._readCharacteristicValue(CONFIG_COMMISSION_UUID)
+                    .then(data => data.getUint8(0));
+            }
+            setCommish(interval) {
+                return this._writeCharacteristicValue(CONFIG_COMMISSION_UUID, new Uint8Array(interval))
+            }
+            // GPS
+            getGps() {
+                return this._readCharacteristicValue(CONFIG_GPS_INT_UUID)
+                    .then(data => data.getUint8(0));
+            }
+            setGps(interval) {
+                return this._writeCharacteristicValue(CONFIG_GPS_INT_UUID, new Uint8Array(interval))
+            }
+            // Tilt angle
+            getTiltAngle() {
+                return this._readCharacteristicValue(CONFIG_TILT_ANGLE_UUID)
+                    .then(data => data.getInt32(0));
+            }
+            setTiltAngle(interval) {
+                return this._writeCharacteristicValue(CONFIG_TILT_ANGLE_UUID, new Int32Array(interval))
+            }
+            // Tilt offset
+            getTiltOffset() {
+                return this._readCharacteristicValue(CONFIG_TILT_OFFSET_UUID)
+                    .then(data => data.getInt32(0));
+            }
+            setTiltOffset(interval) {
+                return this._writeCharacteristicValue(CONFIG_TILT_OFFSET_UUID, new Int32Array(interval))
+            }
+            // Pulse event
+            getPulseEv() {
+                return this._readCharacteristicValue(CONFIG_PULSE_EN_UUID)
+                    .then(data => data.getUint8(0));
+            }
+            setPulseEv(interval) {
+                return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(interval))
+            }
+            // Tx delay
+            getTxDelay() {
+                return this._readCharacteristicValue(CONFIG_TRANS_DELAY_UUID)
+                    .then(data => data.getUint8(0));
+            }
+            setTxDelay(interval) {
+                return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(interval))
+            }
+            // Threshold
+            getAnThresh() {
+                return this._readCharacteristicValue(CONFIG_ANALOG_THRESH_UUID)
+                    .then(data => data.getUint32(0));
+            }
+            setAnThresh(interval) {
+                return this._writeCharacteristicValue(CONFIG_ANALOG_THRESH_UUID, new Uint32Array(interval))
+            }
+            // Test action
+            setTestAction(interval) {
+                return this._writeCharacteristicValue(CONFIG_CONTROL_UUID, new Uint8Array(interval))
+            }
+
+
+            setColor(r, g, b) {
+                let data = [0x00, r, g, b];
+                return this._writeCharacteristicValue(CANDLE_COLOR_UUID, new Uint8Array(data))
+                    .then(() => [r, g, b]); // Returns color when fulfilled.
+            }
+            setCandleEffectColor(r, g, b) {
+                let data = [0x00, r, g, b, 0x04, 0x00, 0x01, 0x00];
+                return this._writeCharacteristicValue(CANDLE_EFFECT_UUID, new Uint8Array(data))
+                    .then(() => [r, g, b]); // Returns color when fulfilled.
+            }
+            setFlashingColor(r, g, b) {
+                let data = [0x00, r, g, b, 0x00, 0x00, 0x1F, 0x00];
+                return this._writeCharacteristicValue(CANDLE_EFFECT_UUID, new Uint8Array(data))
+                    .then(() => [r, g, b]); // Returns color when fulfilled.
+            }
+            setPulseColor(r, g, b) {
+                // We have to correct user color to make it look nice for real...
+                let newRed = Math.min(Math.round(r / 64) * 64, 255);
+                let newGreen = Math.min(Math.round(g / 64) * 64, 255);
+                let newBlue = Math.min(Math.round(b / 64) * 64, 255);
+                let data = [0x00, newRed, newGreen, newBlue, 0x01, 0x00, 0x09, 0x00];
+                return this._writeCharacteristicValue(CANDLE_EFFECT_UUID, new Uint8Array(data))
+                    .then(() => [r, g, b]); // Returns color when fulfilled.
+            }
+            setRainbow() {
+                let data = [0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00];
+                return this._writeCharacteristicValue(CANDLE_EFFECT_UUID, new Uint8Array(data));
+            }
+            setRainbowFade() {
+                let data = [0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x26, 0x00];
+                return this._writeCharacteristicValue(CANDLE_EFFECT_UUID, new Uint8Array(data));
+            }
+
+            /* Battery Service */
+
+            getBatteryLevel() {
+                return this._readCharacteristicValue('battery_level')
+                    .then(data => data.getUint8(0));
+            }
+
+            /* Device Info Service */
+
+            // getSerialNumber() {
+            //     return this._readCharacteristicValue('serial_number_string')
+            //         .then(this._decodeString);
+            // }
+            // getHardwareRevision() {
+            //     return this._readCharacteristicValue('hardware_revision_string')
+            //         .then(this._decodeString);
+            // }
+            getFirmwareRevision() {
+                return this._readCharacteristicValue('firmware_revision_string')
+                    .then(this._decodeString);
+            }
+            getSoftwareRevision() {
+                return this._readCharacteristicValue('software_revision_string')
+                    .then(this._decodeString);
+            }
+            getManufacturerName() {
+                return this._readCharacteristicValue('manufacturer_name_string')
+                    .then(this._decodeString);
+            }
+
+            /* Utils */
+
+            _cacheCharacteristic(service, characteristicUuid) {
+                return service.getCharacteristic(characteristicUuid)
+                    .then(characteristic => {
+                        this._characteristics.set(characteristicUuid, characteristic);
+                        log(' > ' + characteristic.uuid + ' ' + getSupportedProperties(characteristic));
+                    });
+            }
+            _readCharacteristicValue(characteristicUuid) {
+                let characteristic = this._characteristics.get(characteristicUuid);
+                return characteristic.readValue()
+                    .then(value => {
+                        // In Chrome 50+, a DataView is returned instead of an ArrayBuffer.
+                        value = value.buffer ? value : new DataView(value);
+                        if (this._debug) {
+                            for (var i = 0, a = []; i < value.byteLength; i++) { a.push(value.getUint8(i)); }
+                            console.debug('READ', characteristic.uuid, a);
+                        }
+                        return value;
+                    });
+            }
+            _writeCharacteristicValue(characteristicUuid, value) {
+                let characteristic = this._characteristics.get(characteristicUuid);
+                if (this._debug) {
+                    console.debug('WRITE', characteristic.uuid, value);
+                }
+                return characteristic.writeValue(value);
+            }
+            _decodeString(data) {
+                return decoder.decode(data);
+            }
+            _encodeString(data) {
+                return encoder.encode(data);
+            }
+        }
+
+        var ewOptima = new EWOptima();
+
+        function onButtonClick() {
+            
+            log('Requesting any Bluetooth Device...');
+            
+            ewOptima.connect()
+            .catch(error => {
+                log('Argh! ' + error);
+            });
+        }
+
+        /* Utils */
+
+        function getSupportedProperties(characteristic) {
+            let supportedProperties = [];
+            for (const p in characteristic.properties) {
+                if (characteristic.properties[p] === true) {
+                    supportedProperties.push(p.toUpperCase());
+                }
+            }
+            return '[' + supportedProperties.join(', ') + ']';
+        }
+
+        document.querySelector('form').addEventListener('submit', function (event) {
+            event.stopPropagation();
+            event.preventDefault();
+
+            if (isWebBluetoothEnabled()) {
+                ChromeSamples.clearLog();
+                onButtonClick();
+            }
+        });
+
+    </script>
+</body>
+
+</html>
