@@ -141,6 +141,7 @@ limitations under the License.
         <span class="config_label">Test action</span>
         <input class="config_input" type="text" id="inp_test" />
         <button id="but_set_test">Write</button>
+        <button id="but_get_test">Read</button>
     </div>
     <p></p>
     <div>
@@ -290,6 +291,18 @@ limitations under the License.
             evt.preventDefault();
             ewOptima.setPulseEv( parseInt(document.querySelector("#inp_pulse_ev").checked ? 1 : 0) );
         });
+        
+        document.querySelector("#but_get_comm").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getCommish()
+                .then((s) => {
+                    document.querySelector("#inp_comm").checked = (s == 1);
+                });
+        });
+        document.querySelector("#but_set_comm").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setCommish( parseInt(document.querySelector("#inp_comm").checked ? 1 : 0) );
+        });
 
         document.querySelector("#but_get_tx_delay").addEventListener('click', function(evt) {
             evt.preventDefault();
@@ -347,10 +360,15 @@ limitations under the License.
             ewOptima.setApn( document.querySelector("#inp_apn").value );
         });
 
+        document.querySelector("#but_get_test").addEventListener('click', async function(evt) {
+            evt.preventDefault();
+            document.querySelector("#inp_test").value = await ewOptima.getTestAction();
+        });
         document.querySelector("#but_set_test").addEventListener('click', function(evt) {
             evt.preventDefault();
             ewOptima.setTestAction( parseInt(document.querySelector("#inp_test").value) );
         });
+
         document.querySelector("#but_set_factory_reset").addEventListener('click', function(evt) {
             evt.preventDefault();
             ewOptima.setFactoryResetAction(0);
@@ -535,7 +553,7 @@ limitations under the License.
             // Tilt angle
             getTiltAngle() {
                 return this._readCharacteristicValue(CONFIG_TILT_ANGLE_UUID)
-                    .then(data => data.getInt32(0));
+                    .then(data => this._swap32(data.getInt32(0)) );
             }
             setTiltAngle(interval) {
                 let dat = [interval];
@@ -544,7 +562,7 @@ limitations under the License.
             // Tilt offset
             getTiltOffset() {
                 return this._readCharacteristicValue(CONFIG_TILT_OFFSET_UUID)
-                    .then(data => data.getInt32(0));
+                    .then(data => this._swap32(data.getInt32(0)) );
             }
             setTiltOffset(interval) {
                 let dat = [interval];
@@ -601,9 +619,13 @@ limitations under the License.
                     })
             }
             // Test action
+            async getTestAction() {
+                return await this._readCharacteristicValue(CONFIG_CONTROL_UUID)
+                .then(data => this._swap32(data.getInt32(0)) );
+            }
             setTestAction(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_CONTROL_UUID, new Uint8Array(dat))
+                return this._writeCharacteristicValue(CONFIG_CONTROL_UUID, new Uint32Array(dat))
             }
             // Diagnostic action
             setDiagAction(interval) {
@@ -690,6 +712,17 @@ limitations under the License.
             }
             _encodeString(data) {
                 return encoder.encode(data);
+            }
+
+            _swap16(val) {
+                return ((val & 0xFF) << 8)
+                        | ((val >> 8) & 0xFF);
+            }
+            _swap32(val) {
+                return ((val & 0xFF) << 24)
+                    | ((val & 0xFF00) << 8)
+                    | ((val >> 8) & 0xFF00)
+                    | ((val >> 24) & 0xFF);
             }
         }
 
