@@ -54,6 +54,11 @@ limitations under the License.
             height: 80px;
             overflow-y: scroll;
         }
+        button {
+            margin-left: 10px;
+            margin-right: 5px;
+            margin-top: 5px;
+        }
     </style>
 </head>
 
@@ -61,8 +66,9 @@ limitations under the License.
 
     <h3>Connect Device:</h3>
     <form>
-        <button>Select Device</button>
+        <button id="btn-connect">Select Device</button>
         <span id="lbl-connected">Not connected</span>
+        <button id="btn-disconnect">Disconnect</button>
     </form>
 
     <h3>Configuration</h3>
@@ -80,49 +86,18 @@ limitations under the License.
         <button id="but_set_sense">Write</button>
     </div>
     <div>
-        <span class="config_label">Commission state</span>
-        <!-- <input class="config_input" type="text" id="inp_comm" /> -->
-        <input class="config_input" type="checkbox" id="inp_comm" />
-        <button id="but_get_comm">Read</button>
-        <button id="but_set_comm">Write</button>
-    </div>
-    <div>
         <span class="config_label">GPS interval</span>
         <input class="config_input" type="text" id="inp_gps" />
         <button id="but_get_gps">Read</button>
         <button id="but_set_gps">Write</button>
     </div>
-    <div>
-        <span class="config_label">Tilt angle trigger</span>
-        <input class="config_input" type="text" id="inp_tilt_trig" />
-        <button id="but_get_tilt_trig">Read</button>
-        <button id="but_set_tilt_trig">Write</button>
     </div>
     <div>
-        <span class="config_label">Tilt angle offset</span>
-        <input class="config_input" type="text" id="inp_tilt_off" />
-        <button id="but_get_tilt_off">Read</button>
-        <button id="but_set_tilt_off">Write</button>
-    </div>
-    <div>
-        <span class="config_label">Pulse event enable</span>
-        <input class="config_input" type="checkbox" id="inp_pulse_ev" />
-        <button id="but_get_pulse_ev">Read</button>
-        <button id="but_set_pulse_ev">Write</button>
-    </div>
-    
-    <div>
-        <span class="config_label">Transmit delay</span>
-        <input class="config_input" type="text" id="inp_tx_delay" />
-        <button id="but_get_tx_delay">Read</button>
-        <button id="but_set_tx_delay">Write</button>
-    </div>
-    <div>
-        <span class="config_label">Analog threshold</span>
-        <input class="config_input" type="text" id="inp_an_thresh" />
-        <button id="but_get_an_thresh">Read</button>
-        <button id="but_set_an_thresh">Write</button>
-    </div>
+        <span class="config_label">Commission state</span>
+        <!-- <input class="config_input" type="text" id="inp_comm" /> -->
+        <input class="config_input" type="checkbox" id="inp_comm" />
+        <button id="but_get_comm">Read</button>
+        <button id="but_set_comm">Write</button>
     <div>
         <span class="config_label">Network APN</span>
         <input class="config_input_longer" type="text" id="inp_apn" />
@@ -166,6 +141,40 @@ limitations under the License.
         <div id="content"></div>
         <div id="status"></div>
         <pre id="log"></pre>
+    </div>
+
+    <div style="display: none">
+        <div>
+            <span class="config_label">Tilt angle trigger</span>
+            <input class="config_input" type="text" id="inp_tilt_trig" />
+            <button id="but_get_tilt_trig">Read</button>
+            <button id="but_set_tilt_trig">Write</button>
+        </div>
+        <div>
+            <span class="config_label">Tilt angle offset</span>
+            <input class="config_input" type="text" id="inp_tilt_off" />
+            <button id="but_get_tilt_off">Read</button>
+            <button id="but_set_tilt_off">Write</button>
+        </div>
+        <div>
+            <span class="config_label">Pulse event enable</span>
+            <input class="config_input" type="checkbox" id="inp_pulse_ev" />
+            <button id="but_get_pulse_ev">Read</button>
+            <button id="but_set_pulse_ev">Write</button>
+        </div>
+        
+        <div>
+            <span class="config_label">Transmit delay</span>
+            <input class="config_input" type="text" id="inp_tx_delay" />
+            <button id="but_get_tx_delay">Read</button>
+            <button id="but_set_tx_delay">Write</button>
+        </div>
+        <div>
+            <span class="config_label">Analog threshold</span>
+            <input class="config_input" type="text" id="inp_an_thresh" />
+            <button id="but_get_an_thresh">Read</button>
+            <button id="but_set_an_thresh">Write</button>
+        </div>
     </div>
 
     <script>
@@ -420,16 +429,16 @@ limitations under the License.
         const CONFIG_URL_UUID            = 0xCC05;
         const CONFIG_APN_UUID            = 0xCC06;
         const CONFIG_PORT_UUID           = 0xCC07;
-        const CONFIG_TILT_OFFSET_UUID    = 0xCC08;
-        const CONFIG_TILT_ANGLE_UUID     = 0xCC09;
         const CONFIG_COMMISSION_UUID     = 0xCC0A;
         const CONFIG_CONTROL_UUID        = 0xCC0B;
-        const CONFIG_TRANS_DELAY_UUID    = 0xCC0C;
-        const CONFIG_ANALOG_THRESH_UUID  = 0xCC0D;
-        const CONFIG_PULSE_EN_UUID       = 0xCC0E;
         const MODEM_DEBUG_UUID           = 0xCC20;
         const CONFIG_FACTORT_RESET_UUID  = 0xCC21;
         const CONFIG_REBOOT_UUID         = 0xCC22;
+        // const CONFIG_TILT_OFFSET_UUID    = 0xCC08;
+        // const CONFIG_TILT_ANGLE_UUID     = 0xCC09;
+        // const CONFIG_TRANS_DELAY_UUID    = 0xCC0C;
+        // const CONFIG_ANALOG_THRESH_UUID  = 0xCC0D;
+        // const CONFIG_PULSE_EN_UUID       = 0xCC0E;
 
         class EWOptima {
             constructor() {
@@ -459,7 +468,6 @@ limitations under the License.
                     })
                     .then(server => {
                         this.server = server;
-                        document.querySelector("#lbl-connected").textContent = "Connected!";
                         return Promise.all([
                             server.getPrimaryService(OPTIMA_SERVICE_UUID).then(service => {
                                 service.getCharacteristic(MODEM_DEBUG_UUID)
@@ -479,17 +487,11 @@ limitations under the License.
                                     this._cacheCharacteristic(service, CONFIG_APN_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_URL_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_PORT_UUID         ),
-                                    this._cacheCharacteristic(service, CONFIG_TILT_OFFSET_UUID  ),
-                                    this._cacheCharacteristic(service, CONFIG_TILT_ANGLE_UUID   ),
                                     this._cacheCharacteristic(service, CONFIG_COMMISSION_UUID   ),
                                     this._cacheCharacteristic(service, CONFIG_CONTROL_UUID      ),
-                                    this._cacheCharacteristic(service, CONFIG_TRANS_DELAY_UUID  ),
-                                    this._cacheCharacteristic(service, CONFIG_ANALOG_THRESH_UUID),
-                                    this._cacheCharacteristic(service, CONFIG_PULSE_EN_UUID     ),
                                     this._cacheCharacteristic(service, MODEM_DEBUG_UUID         ),
                                     this._cacheCharacteristic(service, CONFIG_FACTORT_RESET_UUID),
                                     this._cacheCharacteristic(service, CONFIG_REBOOT_UUID       ),
-                                    this._cacheCharacteristic(service, CONFIG_PULSE_EN_UUID     ),
                                 ])
                             }),
                             server.getPrimaryService('battery_service').then(service => {
@@ -503,6 +505,21 @@ limitations under the License.
                             }),
                         ]);
                     })
+                    .then( (d) => {
+                        document.querySelector("#lbl-connected").textContent = "Connected!";
+                    });
+            }
+
+            async disconnect() {
+                if (this.device) {
+                    log('Disconnecting from Bluetooth Device...');
+                    if (this.device.gatt.connected) {
+                        await this.device.gatt.disconnect();
+                        document.querySelector("#lbl-connected").textContent = "Not Connected!";
+                    } else {
+                        log('> Bluetooth Device is already disconnected');
+                    }
+                }
             }
 
             /* Optima Service */  
@@ -552,48 +569,48 @@ limitations under the License.
             }
             // Tilt angle
             getTiltAngle() {
-                return this._readCharacteristicValue(CONFIG_TILT_ANGLE_UUID)
-                    .then(data => this._swap32(data.getInt32(0)) );
+                // return this._readCharacteristicValue(CONFIG_TILT_ANGLE_UUID)
+                //     .then(data => this._swap32(data.getInt32(0)) );
             }
             setTiltAngle(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_TILT_ANGLE_UUID, new Int32Array(dat))
+                // return this._writeCharacteristicValue(CONFIG_TILT_ANGLE_UUID, new Int32Array(dat))
             }
             // Tilt offset
             getTiltOffset() {
-                return this._readCharacteristicValue(CONFIG_TILT_OFFSET_UUID)
-                    .then(data => this._swap32(data.getInt32(0)) );
+                // return this._readCharacteristicValue(CONFIG_TILT_OFFSET_UUID)
+                //     .then(data => this._swap32(data.getInt32(0)) );
             }
             setTiltOffset(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_TILT_OFFSET_UUID, new Int32Array(dat))
+                // return this._writeCharacteristicValue(CONFIG_TILT_OFFSET_UUID, new Int32Array(dat))
             }
             // Pulse event
             getPulseEv() {
-                return this._readCharacteristicValue(CONFIG_PULSE_EN_UUID)
-                    .then(data => data.getUint8(0));
+                // return this._readCharacteristicValue(CONFIG_PULSE_EN_UUID)
+                //     .then(data => data.getUint8(0));
             }
             setPulseEv(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(dat))
+                // return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(dat))
             }
             // Tx delay
             getTxDelay() {
-                return this._readCharacteristicValue(CONFIG_TRANS_DELAY_UUID)
-                    .then(data => data.getUint8(0));
+                // return this._readCharacteristicValue(CONFIG_TRANS_DELAY_UUID)
+                    // .then(data => data.getUint8(0));
             }
             setTxDelay(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(dat))
+                // return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(dat))
             }
             // Threshold
             getAnThresh() {
-                return this._readCharacteristicValue(CONFIG_ANALOG_THRESH_UUID)
-                    .then(data => data.getUint32(0));
+                // return this._readCharacteristicValue(CONFIG_ANALOG_THRESH_UUID)
+                //     .then(data => data.getUint32(0));
             }
             setAnThresh(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_ANALOG_THRESH_UUID, new Uint32Array(interval))
+                // return this._writeCharacteristicValue(CONFIG_ANALOG_THRESH_UUID, new Uint32Array(interval))
             }
             // APN
             async getApn() {
@@ -750,13 +767,28 @@ limitations under the License.
             return '[' + supportedProperties.join(', ') + ']';
         }
 
-        document.querySelector('form').addEventListener('submit', function (event) {
+        document.querySelector('#btn-connect').addEventListener('click', function (event) {
             event.stopPropagation();
             event.preventDefault();
 
             if (isWebBluetoothEnabled()) {
                 ChromeSamples.clearLog();
-                onButtonClick();
+                log('Selecting a device...');
+                ewOptima.connect()
+                    .catch(error => {
+                        log('Argh! ' + error);
+                    });
+            }
+        });
+        
+        document.querySelector('#btn-disconnect').addEventListener('click', async function (event) {
+            event.stopPropagation();
+            event.preventDefault();
+
+            if (isWebBluetoothEnabled()) {
+                ChromeSamples.clearLog();
+                log('Disconnecting');
+                await ewOptima.disconnect();
             }
         });
 
