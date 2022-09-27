@@ -125,6 +125,27 @@ limitations under the License.
     </div>
     <p></p>
     <div>
+        <h4>Analog/Pulse App</h4>
+        <span class="config_label">Tilt angle trigger</span>
+        <input class="config_input" type="text" id="inp_tilt_trig" />
+        <br/>
+        <span class="config_label">Tilt angle offset</span>
+        <input class="config_input" type="text" id="inp_tilt_off" />
+        <br/>
+        <span class="config_label">Pulse event enable</span>
+        <input class="config_input" type="checkbox" id="inp_pulse_ev" />
+        <br/>
+        <span class="config_label">Transmit delay</span>
+        <input class="config_input" type="text" id="inp_tx_delay" />
+        <br/>
+        <span class="config_label">Analog threshold</span>
+        <input class="config_input config_input_longer" type="text" id="inp_an_thresh" />
+        <br/>
+        <button id="but_get_analog">Read</button>
+        <button id="but_set_analog">Write</button>
+    </div>
+    <p></p>
+    <div>
         <span class="config_label">Modem diagnostic</span>
         <button id="but_diag_wake">Wake</button>
         <button id="but_diag_sleep">Sleep</button>
@@ -143,39 +164,6 @@ limitations under the License.
         <pre id="log"></pre>
     </div>
 
-    <div style="display: none">
-        <div>
-            <span class="config_label">Tilt angle trigger</span>
-            <input class="config_input" type="text" id="inp_tilt_trig" />
-            <button id="but_get_tilt_trig">Read</button>
-            <button id="but_set_tilt_trig">Write</button>
-        </div>
-        <div>
-            <span class="config_label">Tilt angle offset</span>
-            <input class="config_input" type="text" id="inp_tilt_off" />
-            <button id="but_get_tilt_off">Read</button>
-            <button id="but_set_tilt_off">Write</button>
-        </div>
-        <div>
-            <span class="config_label">Pulse event enable</span>
-            <input class="config_input" type="checkbox" id="inp_pulse_ev" />
-            <button id="but_get_pulse_ev">Read</button>
-            <button id="but_set_pulse_ev">Write</button>
-        </div>
-        
-        <div>
-            <span class="config_label">Transmit delay</span>
-            <input class="config_input" type="text" id="inp_tx_delay" />
-            <button id="but_get_tx_delay">Read</button>
-            <button id="but_set_tx_delay">Write</button>
-        </div>
-        <div>
-            <span class="config_label">Analog threshold</span>
-            <input class="config_input" type="text" id="inp_an_thresh" />
-            <button id="but_get_an_thresh">Read</button>
-            <button id="but_set_an_thresh">Write</button>
-        </div>
-    </div>
 
     <script>
         var ChromeSamples = {
@@ -265,42 +253,6 @@ limitations under the License.
             ewOptima.setGps( parseInt(document.querySelector("#inp_gps").value) );
         });
 
-        document.querySelector("#but_get_tilt_trig").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.getTiltAngle()
-                .then((s) => {
-                    document.querySelector("#inp_tilt_trig").value = s;
-                });
-        });
-        document.querySelector("#but_set_tilt_trig").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.setTiltAngle( parseInt(document.querySelector("#inp_tilt_trig").value) );
-        });
-
-        document.querySelector("#but_get_tilt_off").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.getTiltOffset()
-                .then((s) => {
-                    document.querySelector("#inp_tilt_off").value = s;
-                });
-        });
-        document.querySelector("#but_set_tilt_off").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.setTiltOffset( parseInt(document.querySelector("#inp_tilt_off").value) );
-        });
-
-        document.querySelector("#but_get_pulse_ev").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.getPulseEv()
-                .then((s) => {
-                    document.querySelector("#inp_pulse_ev").checked = (s == 1);
-                });
-        });
-        document.querySelector("#but_set_pulse_ev").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.setPulseEv( parseInt(document.querySelector("#inp_pulse_ev").checked ? 1 : 0) );
-        });
-        
         document.querySelector("#but_get_comm").addEventListener('click', function(evt) {
             evt.preventDefault();
             ewOptima.getCommish()
@@ -311,42 +263,6 @@ limitations under the License.
         document.querySelector("#but_set_comm").addEventListener('click', function(evt) {
             evt.preventDefault();
             ewOptima.setCommish( parseInt(document.querySelector("#inp_comm").checked ? 1 : 0) );
-        });
-
-        document.querySelector("#but_get_tx_delay").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.getTxDelay()
-                .then((s) => {
-                    document.querySelector("#inp_tx_delay").value = s;
-                });
-        });
-        document.querySelector("#but_set_tx_delay").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.setTxDelay( parseInt(document.querySelector("#inp_tx_delay").value) );
-        });
-
-        document.querySelector("#but_get_an_thresh").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.getAnThresh()
-                .then((s) => {
-                    document.querySelector("#inp_an_thresh").value = s;
-                });
-        });
-        document.querySelector("#but_set_an_thresh").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.setAnThresh( parseInt(document.querySelector("#inp_an_thresh").value) );
-        });
-
-        document.querySelector("#but_get_an_thresh").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.getAnThresh()
-                .then((s) => {
-                    document.querySelector("#inp_an_thresh").value = s;
-                });
-        });
-        document.querySelector("#but_set_an_thresh").addEventListener('click', function(evt) {
-            evt.preventDefault();
-            ewOptima.setAnThresh( parseInt(document.querySelector("#inp_an_thresh").value) );
         });
 
         document.querySelector("#but_get_url").addEventListener('click', async function(evt) {
@@ -386,7 +302,45 @@ limitations under the License.
             evt.preventDefault();
             ewOptima.setRebootAction(0);
         });
+
+
         
+        // Analog App configs
+        document.querySelector("#but_get_analog").addEventListener('click', async function(evt) {
+            evt.preventDefault();
+            let s = await ewOptima.getAnalog(); // : DataView ?
+            console.log(s);
+
+            document.querySelector("#inp_tilt_off").value = s.getInt32(0, false);
+            document.querySelector("#inp_tilt_trig").value = s.getInt32(4, false);
+            document.querySelector("#inp_tx_delay").value = s.getUint8(8);
+            document.querySelector("#inp_an_thresh").value = s.getUint16(9, false) + "," + s.getUint16(11, false);
+            document.querySelector("#inp_pulse_ev").checked = s.getInt8(13, false) == 1;
+        });
+        document.querySelector("#but_set_analog").addEventListener('click', function(evt) {
+            evt.preventDefault();
+
+            const buffer = new ArrayBuffer(32);
+            const view = new DataView(buffer);
+
+            view.setInt32(0,  parseInt(document.querySelector("#inp_tilt_off").value) );
+            view.setInt32(4,  parseInt(document.querySelector("#inp_tilt_trig").value) );
+            view.setUint8(8,  parseInt(document.querySelector("#inp_tx_delay").value) );
+            
+            let val = document.querySelector("#inp_an_thresh").value;
+            let found = val.match(new RegExp(/(\d+)(\d+)/g));
+            if (found.length != 2) {
+                return;
+            }
+            view.setInt16(9, parseInt(found[0]) );
+            view.setInt16(11, parseInt(found[1]) );
+        
+            view.setUint8(13, document.querySelector("#inp_pulse_ev").checked ? 1 : 0 );
+
+            ewOptima.setAnalog( buffer );
+        });        
+        
+        // Modem diag
         document.querySelector("#but_diag_wake").addEventListener('click', function(evt) {
             evt.preventDefault();
             ewOptima.setDiagAction( 0 );
@@ -423,22 +377,18 @@ limitations under the License.
 
         /* Custom Bluetooth Characteristic UUIDs */
 
-        const CONFIG_TILT_INT_UUID       = 0xCC01;
+        const CONFIG_SENSE_UUID          = 0xCC01;
         const CONFIG_HB_INT_UUID         = 0xCC02;
         const CONFIG_GPS_INT_UUID        = 0xCC03;
         const CONFIG_URL_UUID            = 0xCC05;
         const CONFIG_APN_UUID            = 0xCC06;
         const CONFIG_PORT_UUID           = 0xCC07;
+        const CONFIG_MISC_UUID           = 0xCC08;
         const CONFIG_COMMISSION_UUID     = 0xCC0A;
         const CONFIG_CONTROL_UUID        = 0xCC0B;
         const MODEM_DEBUG_UUID           = 0xCC20;
         const CONFIG_FACTORT_RESET_UUID  = 0xCC21;
         const CONFIG_REBOOT_UUID         = 0xCC22;
-        // const CONFIG_TILT_OFFSET_UUID    = 0xCC08;
-        // const CONFIG_TILT_ANGLE_UUID     = 0xCC09;
-        // const CONFIG_TRANS_DELAY_UUID    = 0xCC0C;
-        // const CONFIG_ANALOG_THRESH_UUID  = 0xCC0D;
-        // const CONFIG_PULSE_EN_UUID       = 0xCC0E;
 
         class EWOptima {
             constructor() {
@@ -481,7 +431,7 @@ limitations under the License.
                                     characteristic.startNotifications();
                                 });
                                 return Promise.all([
-                                    this._cacheCharacteristic(service, CONFIG_TILT_INT_UUID     ),
+                                    this._cacheCharacteristic(service, CONFIG_SENSE_UUID        ),
                                     this._cacheCharacteristic(service, CONFIG_HB_INT_UUID       ),
                                     this._cacheCharacteristic(service, CONFIG_GPS_INT_UUID      ),
                                     this._cacheCharacteristic(service, CONFIG_APN_UUID          ),
@@ -492,6 +442,7 @@ limitations under the License.
                                     this._cacheCharacteristic(service, MODEM_DEBUG_UUID         ),
                                     this._cacheCharacteristic(service, CONFIG_FACTORT_RESET_UUID),
                                     this._cacheCharacteristic(service, CONFIG_REBOOT_UUID       ),
+                                    this._cacheCharacteristic(service, CONFIG_MISC_UUID         ),
                                 ])
                             }),
                             server.getPrimaryService('battery_service').then(service => {
@@ -542,12 +493,13 @@ limitations under the License.
             }
             // Sense/tilt interval
             getSenseInt() {
-                return this._readCharacteristicValue(CONFIG_TILT_INT_UUID)
+                return this._readCharacteristicValue(CONFIG_SENSE_UUID)
                     .then(data => data.getUint16(0));
             }
             setSenseInt(interval) {
                 let dat = [interval];
-                return this._writeCharacteristicValue(CONFIG_TILT_INT_UUID, new Uint16Array(dat))
+                return this._writeCharacteristicValue(CONFIG_SENSE_UUID, new Uint8Array(dat))
+                // return this._writeCharacteristicValue(CONFIG_SENSE_UUID, new Uint16Array(dat))
             }
             // Commission enable
             getCommish() {
@@ -567,51 +519,16 @@ limitations under the License.
                 let dat = [interval];
                 return this._writeCharacteristicValue(CONFIG_GPS_INT_UUID, new Uint8Array(dat))
             }
-            // Tilt angle
-            getTiltAngle() {
-                // return this._readCharacteristicValue(CONFIG_TILT_ANGLE_UUID)
-                //     .then(data => this._swap32(data.getInt32(0)) );
+
+
+            // Misc app config
+            getAnalog() {
+                return this._readCharacteristicValue(CONFIG_MISC_UUID);
             }
-            setTiltAngle(interval) {
-                let dat = [interval];
-                // return this._writeCharacteristicValue(CONFIG_TILT_ANGLE_UUID, new Int32Array(dat))
+            setAnalog(buffer) {
+                return this._writeCharacteristicValue(CONFIG_MISC_UUID, new Uint8Array(buffer) );
             }
-            // Tilt offset
-            getTiltOffset() {
-                // return this._readCharacteristicValue(CONFIG_TILT_OFFSET_UUID)
-                //     .then(data => this._swap32(data.getInt32(0)) );
-            }
-            setTiltOffset(interval) {
-                let dat = [interval];
-                // return this._writeCharacteristicValue(CONFIG_TILT_OFFSET_UUID, new Int32Array(dat))
-            }
-            // Pulse event
-            getPulseEv() {
-                // return this._readCharacteristicValue(CONFIG_PULSE_EN_UUID)
-                //     .then(data => data.getUint8(0));
-            }
-            setPulseEv(interval) {
-                let dat = [interval];
-                // return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(dat))
-            }
-            // Tx delay
-            getTxDelay() {
-                // return this._readCharacteristicValue(CONFIG_TRANS_DELAY_UUID)
-                    // .then(data => data.getUint8(0));
-            }
-            setTxDelay(interval) {
-                let dat = [interval];
-                // return this._writeCharacteristicValue(CONFIG_PULSE_EN_UUID, new Uint8Array(dat))
-            }
-            // Threshold
-            getAnThresh() {
-                // return this._readCharacteristicValue(CONFIG_ANALOG_THRESH_UUID)
-                //     .then(data => data.getUint32(0));
-            }
-            setAnThresh(interval) {
-                let dat = [interval];
-                // return this._writeCharacteristicValue(CONFIG_ANALOG_THRESH_UUID, new Uint32Array(interval))
-            }
+
             // APN
             async getApn() {
                 return await this._readCharacteristicValue(CONFIG_APN_UUID).then(this._decodeString);
