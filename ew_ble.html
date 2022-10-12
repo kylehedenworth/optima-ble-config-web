@@ -91,7 +91,6 @@ limitations under the License.
         <button id="but_get_gps">Read</button>
         <button id="but_set_gps">Write</button>
     </div>
-    </div>
     <div>
         <span class="config_label">Commission state</span>
         <!-- <input class="config_input" type="text" id="inp_comm" /> -->
@@ -99,6 +98,12 @@ limitations under the License.
         <button id="but_get_comm">Read</button>
         <button id="but_set_comm">Write</button>
     <div>
+    <div>
+        <span class="config_label">MNO/Carrier</span>
+        <input class="config_input" type="text" id="inp_mno" />
+        <button id="but_get_mno">Read</button>
+        <button id="but_set_mno">Write</button>
+    </div>
         <span class="config_label">Network APN</span>
         <input class="config_input_longer" type="text" id="inp_apn" />
         <button id="but_get_apn">Read</button>
@@ -252,7 +257,19 @@ limitations under the License.
             evt.preventDefault();
             ewOptima.setGps( parseInt(document.querySelector("#inp_gps").value) );
         });
-
+        
+        document.querySelector("#but_get_mno").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.getMno()
+                .then((s) => {
+                    document.querySelector("#inp_mno").value = s;
+                });
+        });
+        document.querySelector("#but_set_mno").addEventListener('click', function(evt) {
+            evt.preventDefault();
+            ewOptima.setMno( parseInt(document.querySelector("#inp_mno").value) );
+        });
+        
         document.querySelector("#but_get_comm").addEventListener('click', function(evt) {
             evt.preventDefault();
             ewOptima.getCommish()
@@ -380,6 +397,7 @@ limitations under the License.
         const CONFIG_SENSE_UUID          = 0xCC01;
         const CONFIG_HB_INT_UUID         = 0xCC02;
         const CONFIG_GPS_INT_UUID        = 0xCC03;
+        const CONFIG_MNO_UUID            = 0xCC04;
         const CONFIG_URL_UUID            = 0xCC05;
         const CONFIG_APN_UUID            = 0xCC06;
         const CONFIG_PORT_UUID           = 0xCC07;
@@ -437,6 +455,7 @@ limitations under the License.
                                     this._cacheCharacteristic(service, CONFIG_APN_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_URL_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_PORT_UUID         ),
+                                    this._cacheCharacteristic(service, CONFIG_MNO_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_COMMISSION_UUID   ),
                                     this._cacheCharacteristic(service, CONFIG_CONTROL_UUID      ),
                                     this._cacheCharacteristic(service, MODEM_DEBUG_UUID         ),
@@ -519,7 +538,15 @@ limitations under the License.
                 let dat = [interval];
                 return this._writeCharacteristicValue(CONFIG_GPS_INT_UUID, new Uint8Array(dat))
             }
-
+            // MNO
+            getMno() {
+                return this._readCharacteristicValue(CONFIG_MNO_UUID)
+                    .then(data => data.getUint8(0));
+            }
+            setMno(interval) {
+                let dat = [interval];
+                return this._writeCharacteristicValue(CONFIG_MNO_UUID, new Uint8Array(dat))
+            }
 
             // Misc app config
             getAnalog() {
