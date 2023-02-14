@@ -143,11 +143,20 @@ limitations under the License.
         <span class="config_label">Transmit delay</span>
         <input class="config_input" type="text" id="inp_tx_delay" />
         <br/>
-        <span class="config_label">Analog threshold</span>
+        <span class="config_label">Analog threshold (lower, upper, hysteresis)</span>
         <input class="config_input config_input_longer" type="text" id="inp_an_thresh" />
         <br/>
         <button id="but_get_analog">Read</button>
         <button id="but_set_analog">Write</button>
+    </div>
+    <p></p>
+    <div>
+        <h4>GW Debug</h4>
+        <button id="but_get_gw_log">Read Log</button>
+        <input class="config_input config_input_longer" type="text" id="inp_gw_log" />
+        <br />
+        <button id="but_get_gw_key">Read Keys</button>
+        <input class="config_input config_input_longer" type="text" id="inp_gw_key" />
     </div>
     <p></p>
     <div>
@@ -220,6 +229,12 @@ limitations under the License.
 
         let encoder = new TextEncoder('utf-8');
         let decoder = new TextDecoder('utf-8');
+
+        function bufferToHex (buffer) {
+            return [...new Uint8Array (buffer)]
+                .map (b => b.toString (16).padStart (2, "0"))
+                .join ("");
+        }
 
         /* Document bindings */
         document.querySelector("#but_get_uplink").addEventListener('click', function(evt) {
@@ -322,6 +337,41 @@ limitations under the License.
 
 
         
+        // GW Debug
+        document.querySelector("#but_get_gw_log").addEventListener('click', async function(evt) {
+            evt.preventDefault();
+            
+            const buffer = new ArrayBuffer(32);
+            const view = new DataView(buffer);
+            view.setUint8(0, 1 );   // 1 = logs
+            
+            await ewOptima.setAnalog( buffer );
+
+            setTimeout( async function() {
+                let s = await ewOptima.getAnalog(); // : DataView ?
+                console.log(s);
+    
+                document.querySelector("#inp_gw_log").value = ewOptima._decodeString(s.buffer.slice(1));
+            }, 500);
+            
+        });
+        document.querySelector("#but_get_gw_key").addEventListener('click', async function(evt) {
+            evt.preventDefault();
+
+            const buffer = new ArrayBuffer(32);
+            const view = new DataView(buffer);
+            view.setUint8(0, 2 );   // 2 = keys
+            
+            await ewOptima.setAnalog( buffer );
+
+            setTimeout( async function() {
+                let s = await ewOptima.getAnalog(); // : DataView ?
+                console.log(s);
+    
+                document.querySelector("#inp_gw_key").value = bufferToHex(s.buffer);
+            }, 500);
+        });        
+        
         // Analog App configs
         document.querySelector("#but_get_analog").addEventListener('click', async function(evt) {
             evt.preventDefault();
@@ -331,7 +381,7 @@ limitations under the License.
             document.querySelector("#inp_tilt_off").value = s.getInt32(0, false);
             document.querySelector("#inp_tilt_trig").value = s.getInt32(4, false);
             document.querySelector("#inp_tx_delay").value = s.getUint8(8);
-            document.querySelector("#inp_an_thresh").value = s.getUint16(9, false) + "," + s.getUint16(11, false);
+            document.querySelector("#inp_an_thresh").value = s.getUint16(9, false) + "," + s.getUint16(11, false) + "," + s.getUint16(14, false);
             document.querySelector("#inp_pulse_ev").checked = s.getInt8(13, false) == 1;
         });
         document.querySelector("#but_set_analog").addEventListener('click', function(evt) {
@@ -345,12 +395,13 @@ limitations under the License.
             view.setUint8(8,  parseInt(document.querySelector("#inp_tx_delay").value) );
             
             let val = document.querySelector("#inp_an_thresh").value;
-            let found = val.match(new RegExp(/(\d+)(\d+)/g));
-            if (found.length != 2) {
+            let found = val.match(new RegExp(/(\d+)(\d+)(\d+)/g));
+            if (found.length != 3) {
                 return;
             }
             view.setInt16(9, parseInt(found[0]) );
             view.setInt16(11, parseInt(found[1]) );
+            view.setInt16(14, parseInt(found[2]) );
         
             view.setUint8(13, document.querySelector("#inp_pulse_ev").checked ? 1 : 0 );
 
