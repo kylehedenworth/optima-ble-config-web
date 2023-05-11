@@ -112,7 +112,6 @@ limitations under the License.
     <div>
         <span class="config_label">Server IP, port</span>
         <input class="config_input_longer" type="text" id="inp_url" />
-        <input class="config_input" type="number" id="inp_port" />
         <button id="but_get_url">Read</button>
         <button id="but_set_url">Write</button>
     </div>
@@ -302,11 +301,11 @@ limitations under the License.
             evt.preventDefault();
             let s = await ewOptima.getUrl();
             document.querySelector("#inp_url").value = s.url;
-            document.querySelector("#inp_port").vlue = s.port;
+            // document.querySelector("#inp_port").vlue = s.port;
         });
         document.querySelector("#but_set_url").addEventListener('click', function(evt) {
             evt.preventDefault();
-            ewOptima.setUrl( {url: document.querySelector("#inp_url").value, port: parseInt(document.querySelector("#inp_port").value) });
+            ewOptima.setUrl( {url: document.querySelector("#inp_url").value, port: 0 });
         });
         
         document.querySelector("#but_get_apn").addEventListener('click', async function(evt) {
