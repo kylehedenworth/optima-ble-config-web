@@ -396,13 +396,12 @@ limitations under the License.
             view.setUint8(8,  parseInt(document.querySelector("#inp_tx_delay").value) );
             
             let val = document.querySelector("#inp_an_thresh").value;
-            let found = val.match(new RegExp(/(\d+)(\d+)(\d+)/g));
-            if (found.length != 3) {
-                return;
+            let found = val.match(new RegExp(/(\d+),(\d+),(\d+)/));
+            if (found.length == 4) {
+                view.setInt16(9, parseInt(found[0]) );
+                view.setInt16(11, parseInt(found[1]) );
+                view.setInt16(14, parseInt(found[2]) );
             }
-            view.setInt16(9, parseInt(found[0]) );
-            view.setInt16(11, parseInt(found[1]) );
-            view.setInt16(14, parseInt(found[2]) );
         
             view.setUint8(13, document.querySelector("#inp_pulse_ev").checked ? 1 : 0 );
 
@@ -522,7 +521,6 @@ limitations under the License.
                                     this._cacheCharacteristic(service, CONFIG_GPS_INT_UUID      ),
                                     this._cacheCharacteristic(service, CONFIG_APN_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_URL_UUID          ),
-                                    this._cacheCharacteristic(service, CONFIG_PORT_UUID         ),
                                     this._cacheCharacteristic(service, CONFIG_MNO_UUID          ),
                                     this._cacheCharacteristic(service, CONFIG_COMMISSION_UUID   ),
                                     this._cacheCharacteristic(service, CONFIG_CONTROL_UUID      ),
@@ -634,18 +632,18 @@ limitations under the License.
             // URL
             async getUrl() {
                 let url = await this._readCharacteristicValue(CONFIG_URL_UUID).then(this._decodeString);
-                let prt = await this._readCharacteristicValue(CONFIG_PORT_UUID).then(data => data.getUint16(0));
+                // let prt = await this._readCharacteristicValue(CONFIG_PORT_UUID).then(data => data.getUint16(0));
                 return {
                     url: url,
                     port: prt
                 };
             }
             setUrl(s) {
-                return this._writeCharacteristicValue(CONFIG_URL_UUID, encoder.encode(s.url) )
-                .then(() => {
-                        let prt = [s.port];
-                        return this._writeCharacteristicValue(CONFIG_PORT_UUID, new Uint16Array(prt))
-                    })
+                return this._writeCharacteristicValue(CONFIG_URL_UUID, encoder.encode(s.url) );
+                // .then(() => {
+                //         let prt = [s.port];
+                //         return this._writeCharacteristicValue(CONFIG_PORT_UUID, new Uint16Array(prt))
+                //     })
             }
             // Test action
             async getTestAction() {
