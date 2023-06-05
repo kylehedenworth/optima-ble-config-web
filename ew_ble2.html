@@ -458,6 +458,22 @@ limitations under the License.
         const CONFIG_FACTORT_RESET_UUID  = 0xCC21;
         const CONFIG_REBOOT_UUID         = 0xCC22;
 
+        const NET_STATS_TEXT = [
+            {str: "NET_STAT_OFFLINE", col: "black"},
+            {str: "Starting...", col: "black"},
+            {str: "Device fault", col: "red"},
+            {str: "SIM card fault", col: "red"},
+            {str: "Connecting...", col: "black"},
+            {str: "Connected", col: "green"},
+            {str: "Connection timeout", col: "red"},
+            {str: "Message ok", col: "green"},
+            {str: "Message faled", col: "red"},
+            {str: "NET_STAT_CLOUD_AUTH", col: "black"},
+            {str: "GPS searching...", col: "black"},
+            {str: "GPS success", col: "green"},
+            {str: "GPS timeout", col: "red"}
+        ];
+
         class EWOptima {
             constructor() {
                 this.device = null;
@@ -505,12 +521,13 @@ limitations under the License.
                                         characteristic.addEventListener('characteristicvaluechanged', function(event) {
                                                 // In Chrome 50+, a DataView is returned instead of an ArrayBuffer.
                                                 let value = event.target.value.buffer ? event.target.value : new DataView(event.target.value);
-                                                if (this._debug) {
-                                                    for (var i = 0, a = []; i < value.byteLength; i++) { a.push(value.getUint8(i)); }
-                                                }
-                                                
-                                                console.log(value);
+
+                                                console.log(value.getInt32(0));
                                                 document.querySelector('#lbl_test_res').textContent = value.getInt32(0);
+
+                                                let str = value.getInt32(0) + " : " + NET_STATS_TEXT[value.getInt32(0)].str;
+                                                str = "<span style='color: " + NET_STATS_TEXT[value.getInt32(0)].col + "''>" + str + "</span>";
+                                                document.querySelector('#log').innerHTML += str + '\n';
                                             });
                                         characteristic.startNotifications();
                                     });
