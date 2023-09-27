@@ -23,7 +23,7 @@ limitations under the License.
         content="Sample illustrating the use of Web Bluetooth / Discover Services & Characteristics.">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <title>Web Bluetooth / Discover Services & Characteristics Sample</title>
+    <title>Optima BT Configuration Tool - Eden Worth</title>
     <script>
         // Add a global error event listener early on in the page load, to help ensure that browsers
         // which don't support specific functionality still end up displaying a meaningful message.
@@ -51,7 +51,7 @@ limitations under the License.
         .debug-scroll {
             border-left: solid 1px black;
             /* display: block; */
-            height: 80px;
+            height: 100px;
             overflow-y: scroll;
         }
         button {
@@ -168,7 +168,9 @@ limitations under the License.
         <button id="but_diag_gps_start">GPS Start</button>
         <button id="but_diag_gps_stop">GPS Stop</button>
         <button id="but_diag_gps_stat">GPS Status</button>
-        <pre id="debug_log" class="debug-scroll">&nbsp;</pre>
+    </div>
+    <div>
+        <textarea id="debug_log" class="debug-scroll">&nbsp;</textarea>
     </div>
 
     <h3>Output</h3>
@@ -510,7 +512,7 @@ limitations under the License.
                                         characteristic.addEventListener('characteristicvaluechanged', function(event) {
                                                 let decoder = new TextDecoder('utf-8');
                                                 let txt = document.querySelector('#debug_log').textContent;
-                                                document.querySelector('#debug_log').textContent = decoder.decode(event.target.value) + '\n' + txt;
+                                                document.querySelector('#debug_log').textContent = decoder.decode(event.target.value).replace('\n', '') + '\n' + txt;
                                                 // log('> ' + decoder.decode(event.target.value));
                                             });
                                         characteristic.startNotifications();
