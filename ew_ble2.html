@@ -51,7 +51,8 @@ limitations under the License.
         .debug-scroll {
             border-left: solid 1px black;
             /* display: block; */
-            height: 100px;
+            height: 200px;
+            width: 500px;
             overflow-y: scroll;
         }
         button {
@@ -177,7 +178,7 @@ limitations under the License.
     <div id="output" class="output">
         <div id="content"></div>
         <div id="status"></div>
-        <pre id="log"></pre>
+        <pre id="log" class="debug-scroll">&nbsp;</pre>
     </div>
 
 
@@ -473,7 +474,9 @@ limitations under the License.
             {str: "NET_STAT_CLOUD_AUTH", col: "black"},
             {str: "GPS searching...", col: "black"},
             {str: "GPS success", col: "green"},
-            {str: "GPS timeout", col: "red"}
+            {str: "GPS timeout", col: "red"},
+            {str: "GPS SNR OK", col: "green"},
+            {str: "GPS SNR LOW", col: "red"}
         ];
 
         class EWOptima {
@@ -529,7 +532,8 @@ limitations under the License.
 
                                                 let str = value.getInt32(0) + " : " + NET_STATS_TEXT[value.getInt32(0)].str;
                                                 str = "<span style='color: " + NET_STATS_TEXT[value.getInt32(0)].col + "''>" + str + "</span>";
-                                                document.querySelector('#log').innerHTML += str + '\n';
+                                                let olds = document.querySelector('#log').innerHTML;
+                                                document.querySelector('#log').innerHTML = str + '\n' + olds;
                                             });
                                         characteristic.startNotifications();
                                     });
