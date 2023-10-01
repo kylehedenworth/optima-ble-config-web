@@ -120,7 +120,7 @@ limitations under the License.
     <div>
         <span class="config_label">Test action</span>
         <input class="config_input" type="text" id="inp_test" />
-        <label id="lbl_test_res" >Result</label>
+        <label id="lbl_test_res" style="border-bottom: black solid 1px;" >Result</label>
         <button id="but_set_test">Write</button>
         <button id="but_get_test">Read</button>
     </div>
@@ -171,7 +171,7 @@ limitations under the License.
         <button id="but_diag_gps_stat">GPS Status</button>
     </div>
     <div>
-        <textarea id="debug_log" class="debug-scroll">&nbsp;</textarea>
+        <pre id="debug_log" class="debug-scroll">&nbsp;</pre>
     </div>
 
     <h3>Output</h3>
@@ -180,6 +180,7 @@ limitations under the License.
         <div id="status"></div>
         <pre id="log" class="debug-scroll">&nbsp;</pre>
     </div>
+    <span>v2.0</span>
 
 
     <script>
@@ -322,7 +323,7 @@ limitations under the License.
 
         document.querySelector("#but_get_test").addEventListener('click', async function(evt) {
             evt.preventDefault();
-            document.querySelector("#inp_test").value = await ewOptima.getTestAction();
+            let value = await ewOptima.getTestAction();
         });
         document.querySelector("#but_set_test").addEventListener('click', function(evt) {
             evt.preventDefault();
@@ -400,10 +401,11 @@ limitations under the License.
             let val = document.querySelector("#inp_an_thresh").value;
             let found = val.match(new RegExp(/(\d+),(\d+),(\d+)/));
             if (found.length == 4) {
-                view.setInt16(9, parseInt(found[0]) );
-                view.setInt16(11, parseInt(found[1]) );
-                view.setInt16(14, parseInt(found[2]) );
+                view.setInt16(9, parseInt(found[1]) );
+                view.setInt16(11, parseInt(found[2]) );
+                view.setInt16(14, parseInt(found[3]) );
             }
+            console.log(parseInt(found[0]), parseInt(found[1]), parseInt(found[2]));
         
             view.setUint8(13, document.querySelector("#inp_pulse_ev").checked ? 1 : 0 );
 
@@ -476,7 +478,8 @@ limitations under the License.
             {str: "GPS success", col: "green"},
             {str: "GPS timeout", col: "red"},
             {str: "GPS SNR OK", col: "green"},
-            {str: "GPS SNR LOW", col: "red"}
+            {str: "GPS SNR LOW", col: "red"},
+            {str: "PROVISIONING", col: "red"}
         ];
 
         class EWOptima {
