@@ -180,7 +180,7 @@ limitations under the License.
         <div id="status"></div>
         <pre id="log" class="debug-scroll">&nbsp;</pre>
     </div>
-    <span>v2.0</span>
+    <span>v2.1/span>
 
 
     <script>
@@ -533,8 +533,14 @@ limitations under the License.
                                                 console.log(value.getInt32(0));
                                                 document.querySelector('#lbl_test_res').textContent = value.getInt32(0);
 
-                                                let str = value.getInt32(0) + " : " + NET_STATS_TEXT[value.getInt32(0)].str;
-                                                str = "<span style='color: " + NET_STATS_TEXT[value.getInt32(0)].col + "''>" + str + "</span>";
+                                                let str = "";
+                                                if (value.getInt32(0) < NET_STATS_TEXT.length) {
+                                                    str = value.getInt32(0) + " : " + NET_STATS_TEXT[value.getInt32(0)].str;
+                                                    str = "<span style='color: " + NET_STATS_TEXT[value.getInt32(0)].col + "''>" + str + "</span>";
+                                                }
+                                                else {
+                                                    str = value.getInt32(0) + "";
+                                                }
                                                 let olds = document.querySelector('#log').innerHTML;
                                                 document.querySelector('#log').innerHTML = str + '\n' + olds;
                                             });
