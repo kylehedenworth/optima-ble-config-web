@@ -52,7 +52,7 @@ limitations under the License.
             border-left: solid 1px black;
             /* display: block; */
             height: 200px;
-            width: 500px;
+            width: 800px;
             overflow-y: scroll;
         }
         button {
@@ -529,9 +529,12 @@ limitations under the License.
                                     .then(characteristic => {
                                         characteristic.addEventListener('characteristicvaluechanged', function(event) {
                                                 let decoder = new TextDecoder('utf-8');
-                                                let txt = document.querySelector('#debug_log').textContent;
-                                                document.querySelector('#debug_log').textContent = decoder.decode(event.target.value).replace('\n', '') + '\n' + txt;
+                                                let textarea = document.querySelector('#debug_log');
+                                                let txt = textarea.textContent;
+                                                textarea.textContent = txt + decoder.decode(event.target.value) + '\n';//.replace('\n', '') + '\n';
                                                 // log('> ' + decoder.decode(event.target.value));
+                                                console.log(decoder.decode(event.target.value));
+                                                textarea.scrollTop = textarea.scrollHeight;
                                             });
                                         characteristic.startNotifications();
                                     });
