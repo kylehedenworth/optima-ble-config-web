@@ -161,10 +161,20 @@ limitations under the License.
     <div>
         <h4>GW Debug</h4>
         <button id="but_get_gw_log">Read Log</button>
-        <pre id="inp_gw_log" class="debug-scroll" style="height: 60px;">&nbsp;</pre>
+        <button id="but_erase_gw_log">Erase Logs</button>
+        <pre id="inp_gw_log" class="debug-scroll" style="height: 100px;">&nbsp;</pre>
         <br />
         <button id="but_get_gw_key">Read Keys</button>
         <input class="config_input config_input_longer" type="text" id="inp_gw_key" />
+    </div>
+    <p></p>
+    <div>
+        <h4>Lora</h4>
+        AppEUI: <input class="config_input config_input_longer" type="text" id="inp_lora_appeui" />
+        <br />
+        AppKey: <input class="config_input config_input_longer" type="text" id="inp_lora_appkey" />
+        <br />
+        <button id="but_lora_write_keys">Write Keys</button>
     </div>
     <p></p>
     <div>
@@ -359,24 +369,38 @@ limitations under the License.
         // GW Debug
         document.querySelector("#but_get_gw_log").addEventListener('click', async function(evt) {
             evt.preventDefault();
-            
-            const buffer = new ArrayBuffer(32);
-            const view = new DataView(buffer);
-            view.setUint8(0, 1 );   // 1 = logs
-            
-            await ewOptima.setAnalog( buffer );
 
-            setTimeout( async function() {
-                let s = await ewOptima.getAnalog(); // : DataView ?
+            readlogchar = async function() {
+                const buffer = new ArrayBuffer(32);
+                const view = new DataView(buffer);
+                view.setUint8(0, 1 );   // 1 = logs
+
+                await ewOptima.setMisc( buffer );
+
+                let s = await ewOptima.getMisc(); // : DataView ?
                 console.log(s);
     
                 let textarea = document.querySelector('#inp_gw_log');
+                let msg = ewOptima._decodeString(s.buffer.slice(1));
                 let txt = textarea.textContent;
-                textarea.textContent = txt + ewOptima._decodeString(s.buffer.slice(1)) + '\n';
+                textarea.textContent = txt + msg + '\n';
                 textarea.scrollTop = textarea.scrollHeight;
 
-            }, 500);
-            
+                if (msg.indexOf("end") == -1) {
+                    setTimeout(readlogchar, 500);
+                }
+            };
+
+            setTimeout( readlogchar, 500);
+        });
+        document.querySelector("#but_erase_gw_log").addEventListener('click', async function(evt) {
+            evt.preventDefault();
+
+            const buffer = new ArrayBuffer(32);
+            const view = new DataView(buffer);
+            view.setUint8(0, 99 );   // 99 = erase logs, maybe?
+
+            await ewOptima.setMisc( buffer );
         });
         document.querySelector("#but_get_gw_key").addEventListener('click', async function(evt) {
             evt.preventDefault();
@@ -385,20 +409,20 @@ limitations under the License.
             const view = new DataView(buffer);
             view.setUint8(0, 2 );   // 2 = keys
             
-            await ewOptima.setAnalog( buffer );
+            await ewOptima.setMisc( buffer );
 
             setTimeout( async function() {
-                let s = await ewOptima.getAnalog(); // : DataView ?
+                let s = await ewOptima.getMisc(); // : DataView ?
                 console.log(s);
     
                 document.querySelector("#inp_gw_key").value = bufferToHex(s.buffer);
             }, 500);
         });        
-        
+
         // Analog App configs
         document.querySelector("#but_get_analog").addEventListener('click', async function(evt) {
             evt.preventDefault();
-            let s = await ewOptima.getAnalog(); // : DataView ?
+            let s = await ewOptima.getMisc(); // : DataView ?
             console.log(s);
 
             document.querySelector("#inp_tilt_off").value = s.getInt32(0, false);
@@ -440,7 +464,31 @@ limitations under the License.
         
             view.setUint8(13, document.querySelector("#inp_pulse_ev").checked ? 1 : 0 );
 
-            ewOptima.setAnalog( buffer );
+            ewOptima.setMisc( buffer );
+        });
+
+        document.querySelector("#but_lora_write_keys").addEventListener('click', async function(evt) {
+            evt.preventDefault();
+
+            const buffer = new ArrayBuffer(32);
+            const view = new DataView(buffer);
+
+            view.setUint8(0, 10 );   // 10 = lora keys
+
+            let hexString = document.querySelector("#inp_lora_appeui").value;
+            let byteArray = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            for (let i = 0; i < byteArray.length; i++) {
+                view.setUint8(1+i, byteArray[i]);
+            }
+
+            hexString = document.querySelector("#inp_lora_appkey").value;
+            byteArray = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            for (let i = 0; i < byteArray.length; i++) {
+                view.setUint8(9+i, byteArray[i]);
+            }
+
+            console.log(view);
+            await ewOptima.setMisc( buffer );
         });
         
         // Modem diag
@@ -510,7 +558,9 @@ limitations under the License.
             {str: "GPS timeout", col: "red"},
             {str: "GPS SNR OK", col: "green"},
             {str: "GPS SNR LOW", col: "red"},
-            {str: "PROVISIONING", col: "red"}
+            {str: "PROVISIONING", col: "red"},
+            {str: "REBOOTING", col: "red"},
+            {str: "ADXL Error", col: "red"},
         ];
 
         class EWOptima {
@@ -572,13 +622,20 @@ limitations under the License.
                                                 console.log(value.getInt32(0));
                                                 document.querySelector('#lbl_test_res').textContent = value.getInt32(0);
 
-                                                let str = "";
-                                                if (value.getInt32(0) < NET_STATS_TEXT.length) {
-                                                    str = value.getInt32(0) + " : " + NET_STATS_TEXT[value.getInt32(0)].str;
-                                                    str = "<span style='color: " + NET_STATS_TEXT[value.getInt32(0)].col + "''>" + str + "</span>";
+                                                let str = value.getInt32(0) + "";
+
+                                                // Status code has high bit set
+                                                let stats = value.getInt32(0);
+                                                if (stats & 0x40000000) {
+                                                    stats = stats - 0x40000000;
+                                                    if (stats < NET_STATS_TEXT.length) {
+                                                        str = stats + " : " + NET_STATS_TEXT[stats].str;
+                                                        str = "<span style='color: " + NET_STATS_TEXT[stats].col + "''>" + str + "</span>";
+                                                    }
                                                 }
-                                                else {
-                                                    str = value.getInt32(0) + "";
+                                                else if (stats < NET_STATS_TEXT.length) {
+                                                    str = stats + "  ( " + NET_STATS_TEXT[stats].str + " ?? )";
+                                                    str = "<span style='color: " + NET_STATS_TEXT[stats].col + "''>" + str + "</span>";
                                                 }
                                                 let olds = document.querySelector('#log').innerHTML;
                                                 document.querySelector('#log').innerHTML = str + '\n' + olds;
@@ -685,10 +742,10 @@ limitations under the License.
             }
 
             // Misc app config
-            getAnalog() {
+            getMisc() {
                 return this._readCharacteristicValue(CONFIG_MISC_UUID);
             }
-            setAnalog(buffer) {
+            setMisc(buffer) {
                 return this._writeCharacteristicValue(CONFIG_MISC_UUID, new Uint8Array(buffer) );
             }
 
