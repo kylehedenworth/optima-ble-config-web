@@ -61,7 +61,7 @@ class MCUManager {
     constructor(di = {}) {
         this.SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
         this.CHARACTERISTIC_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
-        this._mtu = 400;//240;    // Limited by Windows/Chrome. May be bigger on mobile?
+        this._mtu = 240;    // Limited by Windows/Chrome. May be bigger on mobile?
         this._device = null;
         this._service = null;
         this._characteristic = null;
