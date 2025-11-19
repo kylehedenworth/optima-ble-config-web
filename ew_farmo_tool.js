@@ -1566,7 +1566,7 @@ mcumgr.onImageUploadError(({ error, errorCode, consecutiveTimeouts, totalTimeout
     }
     
     let infoHTML = '<div>';
-    infoHTML += `<span style="color: red">Firmware upload FAILED</span>`;
+    infoHTML += `<span style="color: red">Firmware upload FAILED. ${error}</span>`;
     infoHTML += `</div>`;
     firmwareInfoDiv.innerHTML = infoHTML;
 
@@ -1747,3 +1747,4 @@ firmwareFile.onchange = onFirmwareFileChanged;
 if (!isBluetoothSupported()) {
     alert("Web Browser MUST support Bluetooth to continue");
 }
+
