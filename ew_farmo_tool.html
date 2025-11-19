@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration Tool</title>
+    <style>
+        .hidden { display: none; }
+        button {
+            margin: 4px;
+            padding-top: 2px;
+            padding-bottom: 2px;
+        }
+        .log-content {
+            overflow-y: scroll;
+            height: 100px;
+        }
+        .config_label {
+            font-weight: bold;
+            display: inline-block;
+            width: 150px;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <div id="bluetoothSection">
+            <div>
+                <div>
+                    <span>Status:</span>
+                    <span id="bluetoothStatus">Not connected</span>
+                </div>
+            </div>
+            <p></p>
+            <div>
+                <button id="bluetoothConnectBtn">Connect to Device</button>
+                <button id="bluetoothDisconnectBtn" disabled>Disconnect</button>
+            </div>
+            <p></p>
+            <div id="deviceActionButtons">
+                <button id="sendMessageBtn" disabled>Send Message</button>
+                <button id="readSensorBtn" disabled>Read Sensor</button>
+                <button id="commissionBtn" disabled>Commission</button>
+                <button id="decommissionBtn" disabled>Decommission</button>
+                <hr/>
+                <button id="rebootBtn" disabled class="warning-btn">Reboot Device</button>
+                <button id="factoryResetBtn" disabled class="danger-btn">Factory Reset</button>
+            </div>
+        </div>
+        <p></p>
+        <div>
+            <div>
+                <label for="deviceType">Device Variant:</label>
+                <select id="deviceType">
+                    <option value="">-- Select Device --</option>
+                    <!-- Options will be populated by JavaScript -->
+                </select>
+            </div>
+            <p></p>
+            <div id="bluetoothActions">
+                <button id="bluetoothReadBtn" disabled>Refresh Parameters</button>
+                <button id="bluetoothWriteBtn" disabled>Write Parameters</button>
+            </div>
+            <p></p>
+            <div id="configForm" class="hidden">
+                <!-- Form will be dynamically generated based on selected device -->
+            </div>
+        </div>
+        <p></p>
+        <div id="deviceFirmware">
+            <span class="config_label">Firmware Info</span>
+            <br/>
+            <button id="firmwareStateBtn" disabled>Refresh</button>
+            <br/>
+            <input type="file" id="firmwareFile" accept=".bin,.img" />
+            <button id="firmwareUploadBtn" disabled>Upload firmware</button>
+            <div id="firmwareInfoDiv"></div>
+        </div>
+        <p></p>
+        <div id="modemDiagnostics">
+            <span class="config_label">Modem diagnostic</span>
+            <br/>
+            <button id="diagWakeBtn" disabled>Wake</button>
+            <button id="diagSleepBtn" disabled>Sleep</button>
+            <button id="diagCellBtn"  disabled>Cell Info</button>
+            <button id="diagSimBtn" disabled>SIM Info</button>
+            <button id="diagGpsStartBtn" disabled>GPS Start</button>
+            <button id="diagGpsStopBtn" disabled>GPS Stop</button>
+            <button id="diagGpsStatBtn" disabled>GPS Status</button>
+        </div>
+        <p></p>
+        <div id="bluetoothLog">
+            <div>
+                <h4>Communication Log</h4>
+                <button id="comLogClearBtn">Clear Log</button>
+            </div>
+            <pre id="logContent" class="log-content"></pre>
+        </div>
+        <p></p>
+        <div id="deviceLogs">
+            <div>
+                <h4>Device Logs</h4>
+                <button id="transferLogsBtn" disabled>Transfer Device Logs</button>
+                <button id="saveLogsBtn">Save Logs to File</button>
+            </div>
+            <textarea id="deviceLogOutput" class="log-content" readonly style="width:100%;height:120px;"></textarea>
+        </div>
+        </div>
+    </div>
+
+    <script src="mcumgr/cbor.js"></script>
+    <script src="mcumgr/mcumgr.js"></script>
+    <script src="ew_farmo_tool.js"></script>
+
+    <script src="https://cdn.telemetrydeck.com/websdk/telemetrydeck.min.js" data-app-id="EAEA0E74-BBF3-4B29-A273-3A05A8D0AFC0"></script>
+</body>
+</html>
