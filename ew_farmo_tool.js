@@ -19,6 +19,7 @@ const commissionBtn = document.getElementById('commissionBtn');
 const decommissionBtn = document.getElementById('decommissionBtn');
 const rebootBtn = document.getElementById('rebootBtn');
 const factoryResetBtn = document.getElementById('factoryResetBtn');
+const factorySkipBtn = document.getElementById('factorySkipBtn');
 
 // Modem diagnostic buttons
 const diagWakeBtn = document.getElementById('diagWakeBtn');
@@ -196,7 +197,7 @@ const intervalSettings = {
         type: "number",
         label: "Sensor Interval (minutes)",
         default: 0,
-        min: 1,
+        min: 0,
         max: 60
     }
 };
@@ -754,12 +755,12 @@ function isBluetoothSupported() {
  */
 async function connectToDevice() {
     if (!isBluetoothSupported()) {
-        updateStatus('Bluetooth not supported by your browser', 'error');
+        logMessage('Bluetooth not supported by your browser');
         return;
     }
     
     try {
-        updateStatus('Requesting Bluetooth device...', 'info');
+        logMessage('Requesting Bluetooth device...');
         
         bluetoothDevice = await navigator.bluetooth.requestDevice({
             // filters: [{ services: [SERVICE_UUID] }],
@@ -772,20 +773,20 @@ async function connectToDevice() {
             ]
         });
         
-        updateStatus('Connecting to device...', 'info');
+        logMessage('Connecting to device...');
         bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
         
         const server = await bluetoothDevice.gatt.connect();
         bluetoothServer = server;
         
-        updateStatus('Getting primary services...', 'info');
+        logMessage('Getting primary services...');
         deviceService = await server.getPrimaryService(SERVICE_UUID);
         
-        updateStatus('Getting characteristics...', 'info');
+        logMessage('Getting characteristics...');
         await getCharacteristics();
         
         isConnected = true;
-        updateStatus('Connected to ' + bluetoothDevice.name, 'success');
+        updateStatus('Connected to ' + bluetoothDevice.name);
         updateConnectionUI(true);
 
         try {
@@ -818,7 +819,7 @@ async function connectToDevice() {
 
     } catch (error) {
         console.error('Bluetooth connection error:', error);
-        updateStatus('Connection failed: ' + error.message, 'error');
+        logMessage('Connection failed: ' + error.message);
         disconnectDevice();
         return false;
     }
@@ -898,14 +899,14 @@ function onDisconnected() {
     deviceInfoService = null;
     firmwareCharacteristic = null;
     deviceCharacteristics = {};
-    updateStatus('Disconnected', 'warning');
+    logMessage('Disconnected');
     updateConnectionUI(false);
 }
 
 /**
  * Read a characteristic value
  * @param {string} characteristicKey - Key from CHARACTERISTIC_UUIDS
- * @returns {Promise} Promise that resolves with the value
+ * @returns {Promise} Promise that resolves to a DataView with the value
  */
 async function readCharacteristic(characteristicKey) {
     if (!isConnected || !deviceCharacteristics[characteristicKey]) {
@@ -913,13 +914,12 @@ async function readCharacteristic(characteristicKey) {
     }
     
     try {
-        updateStatus(`Reading ${characteristicKey}...`, 'info');
+        logMessage(`Reading ${characteristicKey}...`);
         const value = await deviceCharacteristics[characteristicKey].readValue();
-        updateStatus(`Read ${characteristicKey} successfully`, 'success');
         return value;
     } catch (error) {
         console.error(`Error reading ${characteristicKey}:`, error);
-        updateStatus(`Failed to read ${characteristicKey}: ${error.message}`, 'error');
+        logMessage(`Failed to read ${characteristicKey}: ${error.message}`);
         throw error;
     }
 }
@@ -936,13 +936,12 @@ async function writeCharacteristic(characteristicKey, value) {
     }
     
     try {
-        updateStatus(`Writing to ${characteristicKey}...`, 'info');
+        logMessage(`Writing to ${characteristicKey}...`);
         await deviceCharacteristics[characteristicKey].writeValue(value);
-        updateStatus(`Wrote to ${characteristicKey} successfully`, 'success');
         return true;
     } catch (error) {
         console.error(`Error writing to ${characteristicKey}:`, error);
-        updateStatus(`Failed to write to ${characteristicKey}: ${error.message}`, 'error');
+        logMessage(`Failed to write to ${characteristicKey}: ${error.message}`);
         throw error;
     }
 }
@@ -995,10 +994,9 @@ function configToMiscBuffer() {
 
 /**
  * Parse MISC characteristic buffer and directly update global config object
- * @param {ArrayBuffer} buffer - Binary data from MISC characteristic
+ * @param {ArrayBuffer} view - Binary data from MISC characteristic as a DataView
  */
-function miscBufferToConfig(buffer) {
-    const view = new DataView(buffer);
+function miscBufferToConfig(view) {
     let offset = 0;
     GlobalConfig.tiltOffset = view.getUint32(offset, false);
     offset += 4;
@@ -1047,7 +1045,7 @@ async function readAllDeviceParameters() {
     try {
         // Read commissioned state
         const commissionValue = await readCharacteristic('COMMISSION');
-        const commissioned = new Uint8Array(commissionValue)[0] === 1;
+        const commissioned = commissionValue.getUint8() === 1;
         GlobalConfig.commissioned = commissioned;
         logMessage('Read Commissioned State: ' + (commissioned ? 'Commissioned' : 'Not Commissioned'));
 
@@ -1072,7 +1070,7 @@ async function readAllDeviceParameters() {
 
         // Read sensor interval
         const senseValue = await readCharacteristic('SENSE_INT');
-        const senseInterval = new DataView(senseValue.buffer).getUint16(0, false);
+        const senseInterval = senseValue.getUint16(0, false);
         GlobalConfig.sensorInterval = senseInterval;
         logMessage('Read Sensor Interval: ' + senseInterval);
 
@@ -1089,7 +1087,7 @@ async function readAllDeviceParameters() {
     // Read MISC characteristic for device-specific parameters
     try {
         const miscValue = await readCharacteristic('MISC');
-        miscBufferToConfig(miscValue.buffer);
+        miscBufferToConfig(miscValue);
 
         logMessage(`Tilt Angle: ${GlobalConfig.tiltAngle}`);
         logMessage(`Pulse Event: ${GlobalConfig.pulseEvent}`);
@@ -1111,12 +1109,12 @@ async function readAllDeviceParameters() {
  */
 async function writeAllParameters() {
     if (!isConnected) {
-        updateStatus('Not connected to a device', 'warning');
+        handleModemDiagNotification('Not connected to a device');
         return;
     }
 
     if (!DeviceType) {
-        updateStatus('Please select a device variant first', 'warning');
+        handleModemDiagNotification('Please select a device variant first');
         return;
     }
     
@@ -1229,7 +1227,7 @@ function handleActionNotification(event) {
  */
 async function performAction(action) {
     if (!isConnected) {
-        updateStatus('Not connected to a device', 'warning');
+        handleModemDiagNotification('Not connected to a device');
         return;
     }
     
@@ -1253,6 +1251,10 @@ async function performAction(action) {
                 actionCode = 4;
                 logMessage('Decommissioning device...');
                 break;
+            case 'SKIP_FACTORY':
+                actionCode = 42;
+                logMessage('Skip factory test...');
+                break;
             default:
                 throw new Error('Unknown action: ' + action);
         }
@@ -1261,12 +1263,11 @@ async function performAction(action) {
         const view = new DataView(buffer);
         view.setUint32(0, actionCode, false);
 
+        logMessage(`Action ${action} requested`);
         await writeCharacteristic('ACTION', buffer);
-        updateStatus(`Action ${action} requested`, 'success');
     } catch (error) {
         console.error(`Error performing action ${action}:`, error);
-        updateStatus(`Failed to perform ${action}: ${error.message}`, 'error');
-        logMessage(`ERROR: Failed to perform ${action}: ${error.message}`);
+        logMessage(`Failed to perform ${action}: ${error.message}`);
     }
 }
 
@@ -1275,7 +1276,7 @@ async function performAction(action) {
  */
 async function rebootDevice() {
     if (!isConnected) {
-        updateStatus('Not connected to a device', 'warning');
+        logMessage('Not connected to a device');
         return;
     }
     
@@ -1284,17 +1285,16 @@ async function rebootDevice() {
     }
     
     try {
-        updateStatus('Rebooting device...', 'warning');
+        logMessage('Rebooting device...');
         
         // Value doesn't matter, just writing to the characteristic triggers the reboot
         const rebootValue = new Uint8Array([1]);
         await writeCharacteristic('REBOOT', rebootValue);
         
-        updateStatus('Reboot command sent. Device will disconnect shortly.', 'success');
+        logMessage('Reboot command sent. Device will disconnect shortly.');
     } catch (error) {
         console.error('Error rebooting device:', error);
-        updateStatus(`Failed to reboot device: ${error.message}`, 'error');
-        logMessage(`ERROR: Failed to reboot device: ${error.message}`);
+        logMessage(`Failed to reboot device: ${error.message}`);
     }
 }
 
@@ -1303,7 +1303,7 @@ async function rebootDevice() {
  */
 async function factoryResetDevice() {
     if (!isConnected) {
-        updateStatus('Not connected to a device', 'warning');
+        logMessage('Not connected to a device');
         return;
     }
     
@@ -1312,18 +1312,33 @@ async function factoryResetDevice() {
     }
     
     try {
-        updateStatus('Performing factory reset...', 'warning');
+        logMessage('Performing factory reset...');
         
         // Value doesn't matter, just writing to the characteristic triggers the reset
         const resetValue = new Uint8Array([1]);
         await writeCharacteristic('FACTORY_RESET', resetValue);
         
-        updateStatus('Factory reset command sent.', 'success');
+        logMessage('Factory reset command sent.');
     } catch (error) {
         console.error('Error performing factory reset:', error);
-        updateStatus(`Failed to factory reset device: ${error.message}`, 'error');
-        logMessage(`ERROR: Failed to factory reset device: ${error.message}`);
+        logMessage(`Failed to factory reset device: ${error.message}`);
     }
+}
+
+/**
+ * Skip Factory Test mode, by writing 42 to ACTION characteristic
+ */
+async function factorySkipDevice() {
+    if (!isConnected) {
+        logMessage('Not connected to a device');
+        return;
+    }
+    
+    if (!confirm('WARNING: Are you sure you want to skip factory testing?')) {
+        return;
+    }
+
+    performAction('SKIP_FACTORY');
 }
 
 function handleModemDiagNotification(event) {
@@ -1337,7 +1352,7 @@ function handleModemDiagNotification(event) {
  */
 async function sendModemDiagAction(action) {
     if (!isConnected) {
-        updateStatus('Not connected to a device', 'warning');
+        logMessage('Not connected to a device');
         return;
     }
     
@@ -1348,8 +1363,7 @@ async function sendModemDiagAction(action) {
         logMessage(`Sent modem diagnostic command: ${action}`);
     } catch (error) {
         console.error('Error sending modem diagnostic command:', error);
-        updateStatus(`Failed to send modem diagnostic command: ${error.message}`, 'error');
-        logMessage(`ERROR: Failed to send modem diagnostic command: ${error.message}`);
+        logMessage(`Failed to send modem diagnostic command: ${error.message}`);
     }
 }
 
@@ -1415,7 +1429,7 @@ async function transferDeviceLogs() {
 // Save device logs to a text file
 function saveDeviceLogsToFile() {
     if (!DeviceType) {
-        updateStatus('Please select a device variant first', 'warning');
+        logMessage('Please select a device variant first');
         return;
     }
 
@@ -1558,7 +1572,7 @@ mcumgr.onImageUploadCancelled(() => {
 
 mcumgr.onImageUploadError(({ error, errorCode, consecutiveTimeouts, totalTimeouts }) => {
     console.log("Upoad error", error);
-
+    logMessage(`Firmware upload FAILED. ${error}`);
     
     // For error code 2 (busy/bad state), provide specific guidance
     if (errorCode === 2) {
@@ -1582,6 +1596,10 @@ async function uploadFirmwareImage(event) {
     firmwareUploadBtn.disabled = true;
     event.stopPropagation();
     if (file && fileData) {
+        // Erase slot first
+        await mcumgr.cmdImageErase();
+
+        // Perform upload
         mcumgr.cmdUpload(fileData);
     }
 };
@@ -1655,22 +1673,16 @@ function clearLog() {
 }
 
 /**
- * Update status message in UI
+ * Update status message
  * @param {string} message - Status message
  * @param {string} type - Message type (info, success, error, warning)
  */
 function updateStatus(message, type = 'info') {
     // Only update the status field with connected/disconnected state
-    if (message.toLowerCase().includes('connect') || message.toLowerCase().includes('disconnect')) {
-        if (statusElement) {
-            statusElement.textContent = message;
-            statusElement.className = 'status-' + type;
-        }
+    if (statusElement) {
+        statusElement.textContent = message;
+        statusElement.className = 'status-' + type;
     }
-    
-    // Log all messages to the log output
-    logMessage(`${type.toUpperCase()}: ${message}`);
-    console.log(`BLE Status (${type}):`, message);
 }
 
 
@@ -1691,6 +1703,7 @@ function updateConnectionUI(connected) {
     if (decommissionBtn) decommissionBtn.disabled = !connected;
     if (rebootBtn) rebootBtn.disabled = !connected;
     if (factoryResetBtn) factoryResetBtn.disabled = !connected;
+    if (factorySkipBtn) factorySkipBtn.disabled = !connected;
     
     // Enable/disable modem diagnostic buttons
     if (diagWakeBtn) diagWakeBtn.disabled = !connected;
@@ -1719,6 +1732,7 @@ writeBtn.onclick = writeAllParameters;
 
 rebootBtn.onclick = rebootDevice;
 factoryResetBtn.onclick = factoryResetDevice;
+factorySkipBtn.onclick = factorySkipDevice;
 
 sendMessageBtn.onclick = function() { performAction('SEND_MESSAGE'); };
 readSensorBtn.onclick = function() { performAction('READ_SENSOR'); };
@@ -1747,4 +1761,3 @@ firmwareFile.onchange = onFirmwareFileChanged;
 if (!isBluetoothSupported()) {
     alert("Web Browser MUST support Bluetooth to continue");
 }
-
