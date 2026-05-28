@@ -197,7 +197,7 @@ limitations under the License.
         <div id="status"></div>
         <pre id="log" class="debug-scroll">&nbsp;</pre>
     </div>
-    <span>v2.3</span>
+    <span>v20260528</span>
 
 
     <script>
@@ -594,14 +594,24 @@ limitations under the License.
                         });
                         return device.gatt.connect();
                     })
-                    .then(server => {
+                    .then(async server => {
                         this.server = server;
-                        return Promise.all([
-                            server.getPrimaryService(OPTIMA_SERVICE_UUID).then(service => {
-                                // Add event handler to modem debug char
-                                service.getCharacteristic(MODEM_DEBUG_UUID)
-                                    .then(characteristic => {
-                                        characteristic.addEventListener('characteristicvaluechanged', function(event) {
+
+                        const optimaSvc = await server.getPrimaryService(OPTIMA_SERVICE_UUID);
+
+                        // Cache all characteristics first, sequentially — Android dislikes parallel GATT ops
+                        for (const uuid of [
+                            CONFIG_SENSE_UUID, CONFIG_HB_INT_UUID, CONFIG_GPS_INT_UUID,
+                            CONFIG_APN_UUID, CONFIG_URL_UUID, CONFIG_MNO_UUID,
+                            CONFIG_COMMISSION_UUID, CONFIG_CONTROL_UUID, MODEM_DEBUG_UUID,
+                            CONFIG_FACTORT_RESET_UUID, CONFIG_REBOOT_UUID, CONFIG_MISC_UUID,
+                        ]) {
+                            await this._cacheCharacteristic(optimaSvc, uuid);
+                        }
+
+                        // Now attach listeners and start notifications — using the *cached* characteristic
+                        const modemChar = this._characteristics.get(MODEM_DEBUG_UUID);
+                        modemChar.addEventListener('characteristicvaluechanged', function(event) {
                                                 let decoder = new TextDecoder('utf-8');
                                                 let textarea = document.querySelector('#debug_log');
                                                 let txt = textarea.textContent;
@@ -610,12 +620,14 @@ limitations under the License.
                                                 console.log(decoder.decode(event.target.value));
                                                 textarea.scrollTop = textarea.scrollHeight;
                                             });
-                                        characteristic.startNotifications();
-                                    });
-                                // Add event handler to control/action char 
-                                service.getCharacteristic(CONFIG_CONTROL_UUID)
-                                    .then(characteristic => {
-                                        characteristic.addEventListener('characteristicvaluechanged', function(event) {
+                        try {
+                            await modemChar.startNotifications();
+                        } catch (error) {
+                            log("Modem debug event failed");
+                        }
+
+                        const ctrlChar = this._characteristics.get(CONFIG_CONTROL_UUID);
+                        ctrlChar.addEventListener('characteristicvaluechanged', function(event) {
                                                 // In Chrome 50+, a DataView is returned instead of an ArrayBuffer.
                                                 let value = event.target.value.buffer ? event.target.value : new DataView(event.target.value);
 
@@ -640,33 +652,18 @@ limitations under the License.
                                                 let olds = document.querySelector('#log').innerHTML;
                                                 document.querySelector('#log').innerHTML = str + '\n' + olds;
                                             });
-                                        characteristic.startNotifications();
-                                    });
-                                return Promise.all([
-                                    this._cacheCharacteristic(service, CONFIG_SENSE_UUID        ),
-                                    this._cacheCharacteristic(service, CONFIG_HB_INT_UUID       ),
-                                    this._cacheCharacteristic(service, CONFIG_GPS_INT_UUID      ),
-                                    this._cacheCharacteristic(service, CONFIG_APN_UUID          ),
-                                    this._cacheCharacteristic(service, CONFIG_URL_UUID          ),
-                                    this._cacheCharacteristic(service, CONFIG_MNO_UUID          ),
-                                    this._cacheCharacteristic(service, CONFIG_COMMISSION_UUID   ),
-                                    this._cacheCharacteristic(service, CONFIG_CONTROL_UUID      ),
-                                    this._cacheCharacteristic(service, MODEM_DEBUG_UUID         ),
-                                    this._cacheCharacteristic(service, CONFIG_FACTORT_RESET_UUID),
-                                    this._cacheCharacteristic(service, CONFIG_REBOOT_UUID       ),
-                                    this._cacheCharacteristic(service, CONFIG_MISC_UUID         ),
-                                ])
-                            }),
-                            server.getPrimaryService('battery_service').then(service => {
-                                return this._cacheCharacteristic(service, 'battery_level')
-                            }),
-                            server.getPrimaryService('device_information').then(service => {
-                                return Promise.all([
-                                    this._cacheCharacteristic(service, 'firmware_revision_string'),
-                                    this._cacheCharacteristic(service, 'manufacturer_name_string'),
-                                ])
-                            }),
-                        ]);
+                        try {
+                            await ctrlChar.startNotifications();
+                        } catch (error) {
+                            log("Action event failed");
+                        }
+
+                        const battSvc = await server.getPrimaryService('battery_service');
+                        await this._cacheCharacteristic(battSvc, 'battery_level');
+
+                        const devSvc = await server.getPrimaryService('device_information');
+                        await this._cacheCharacteristic(devSvc, 'firmware_revision_string');
+                        await this._cacheCharacteristic(devSvc, 'manufacturer_name_string');
                     })
                     .then( (d) => {
                         document.querySelector("#lbl-connected").textContent = "Connected!";
