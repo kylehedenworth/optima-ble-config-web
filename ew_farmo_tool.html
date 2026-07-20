@@ -38,13 +38,9 @@
             </div>
             <p></p>
             <div id="deviceActionButtons">
-                <button id="sendMessageBtn" disabled>Send Message</button>
-                <button id="readSensorBtn" disabled>Read Sensor</button>
-                <button id="commissionBtn" disabled>Commission</button>
-                <button id="decommissionBtn" disabled>Decommission</button>
-                <hr/>
                 <button id="rebootBtn" disabled class="warning-btn">Reboot Device</button>
                 <button id="factoryResetBtn" disabled class="danger-btn">Factory Reset</button>
+                <button id="factorySkipBtn" disabled class="warning-btn">Skip factory test</button>
             </div>
         </div>
         <p></p>
@@ -55,6 +51,8 @@
                     <option value="">-- Select Device --</option>
                     <!-- Options will be populated by JavaScript -->
                 </select>
+                <label for="autoDetect" title="When checked, the device variant is chosen automatically by matching the Bluetooth name on connect. When unchecked, the variant selected in the dropdown is used.">
+                    <input type="checkbox" id="autoDetect" checked> Auto</label>
             </div>
             <p></p>
             <div id="bluetoothActions">
@@ -65,6 +63,8 @@
             <div id="configForm" class="hidden">
                 <!-- Form will be dynamically generated based on selected device -->
             </div>
+            <p></p>
+            <div id="deviceCustomActions"></div>
         </div>
         <p></p>
         <div id="deviceFirmware">
@@ -101,12 +101,14 @@
             <div>
                 <h4>Device Logs</h4>
                 <button id="transferLogsBtn" disabled>Transfer Device Logs</button>
+                <button id="eraseLogsBtn" disabled>Erase Device Logs</button>
                 <button id="saveLogsBtn">Save Logs to File</button>
             </div>
             <textarea id="deviceLogOutput" class="log-content" readonly style="width:100%;height:120px;"></textarea>
         </div>
         </div>
     </div>
+    <span>210726</span>
 
     <script src="mcumgr/cbor.js"></script>
     <script src="mcumgr/mcumgr.js"></script>
