@@ -13,10 +13,6 @@ const deviceActionsContainer = document.getElementById('deviceActionButtons');
 const modemDiagnosticsContainer = document.getElementById('modemDiagnostics');
 
 // Action buttons
-const sendMessageBtn = document.getElementById('sendMessageBtn');
-const readSensorBtn = document.getElementById('readSensorBtn');
-const commissionBtn = document.getElementById('commissionBtn');
-const decommissionBtn = document.getElementById('decommissionBtn');
 const rebootBtn = document.getElementById('rebootBtn');
 const factoryResetBtn = document.getElementById('factoryResetBtn');
 const factorySkipBtn = document.getElementById('factorySkipBtn');
@@ -32,6 +28,7 @@ const diagGpsStatBtn = document.getElementById('diagGpsStatBtn');
 
 const logArea = document.getElementById('deviceLogOutput');
 const transferLogsBtn = document.getElementById('transferLogsBtn');
+const eraseLogsBtn = document.getElementById('eraseLogsBtn');
 const saveLogsBtn = document.getElementById('saveLogsBtn');
 const logContent = document.getElementById('logContent');
 
@@ -222,7 +219,23 @@ const pulseEventSettings = {
     }
 };
 
+// WR3 carrier table (matches ew_carrier_type_t in firmware)
+const WR3_CARRIER_OPTIONS = [
+    { value: 0, display: "Global" },
+    { value: 1, display: "Australia" },
+    { value: 2, display: "NTN (Skylo)" }
+];
+
 // Device configuration lookup table
+// Standard actions shown for every device type. Each writes its code to the
+// ACTION characteristic. Per-type extras are added via a device's `actions` array.
+const commonActions = [
+    { label: "Send Message", code: 1 },
+    { label: "Read Sensor",  code: 2 },
+    { label: "Commission",   code: 3 },
+    { label: "Decommission", code: 4 },
+];
+
 const deviceConfigurations = {
     "WLM": {
         name: "Water Level Monitor",
@@ -332,6 +345,41 @@ const deviceConfigurations = {
             ...commonParameters,
             heartbeatInterval: minuteHeartbeatInterval.heartbeatInterval
         }
+    },
+    "WR3": {
+        name: "WR v3",
+        parameters: {
+            firmwareVersion: commonParameters.firmwareVersion,
+            commissioned: commonParameters.commissioned,
+            heartbeatInterval: intervalSettings.heartbeatInterval,
+            sensorInterval: intervalSettings.sensorInterval,
+            gpsInterval: {
+                type: "number", label: "GPS Interval (heart-beats)", default: 0, min: 0, max: 24
+            },
+            tiltAngle: {
+                type: "number", label: "Tilt Angle (1/10th degrees)", default: 0, min: 0, max: 1800
+            },
+            // Profile 0 (terrestrial NB-IoT / LTE-M)
+            apn0:     { type: "text",    label: "P1 APN", default: "" },
+            carrier0: { type: "select",  label: "P1 Carrier", options: WR3_CARRIER_OPTIONS, default: 1 },
+            psm0:     { type: "boolean", label: "P1 PSM allowed", default: true },
+            nbiot0:   { type: "boolean", label: "P1 NB-IoT allowed", default: true },
+            timeout0: { type: "number",  label: "P1 Connect timeout (s)", default: 1200, min: 0, max: 65535 },
+            failHrs0:  { type: "number",  label: "P1 Fail window (hrs)", default: 48, min: 0, max: 255 },
+            retryHrs0: { type: "number",  label: "P1 Retry window (hrs)", default: 0, min: 0, max: 255 },
+            // Profile 1 (NTN / Skylo)
+            apn1:     { type: "text",    label: "P2 APN", default: "" },
+            carrier1: { type: "select",  label: "P2 Carrier", options: WR3_CARRIER_OPTIONS, default: 2 },
+            psm1:     { type: "boolean", label: "P2 PSM allowed", default: true },
+            nbiot1:   { type: "boolean", label: "P2 NB-IoT allowed", default: true },
+            timeout1: { type: "number",  label: "P2 Connect timeout (s)", default: 600, min: 0, max: 65535 },
+            failHrs1:  { type: "number",  label: "P2 Fail window (hrs)", default: 48, min: 0, max: 255 },
+            retryHrs1: { type: "number",  label: "P2 Retry window (hrs)", default: 48, min: 0, max: 255 }
+        },
+        actions: [
+            { label: "Select NB-IoT", code: 50 },
+            { label: "Select NTN",    code: 51 },
+        ]
     }
 };
 
@@ -538,6 +586,49 @@ function deviceTypeSelectUpdated() {
 }
 
 /**
+ * Callback when the Auto checkbox changes. Auto = name matching selects the type,
+ * so the manual dropdown is disabled while Auto is checked.
+ */
+function autoDetectUpdated() {
+    deviceTypeSelect.disabled = autoDetectCheckbox.checked;
+}
+
+/**
+ * Write an action code to the ACTION characteristic.
+ */
+async function sendActionCode(code, label) {
+    if (!isConnected) {
+        logMessage('Not connected to a device');
+        return;
+    }
+    try {
+        logMessage(`Action ${label} (${code}) requested`);
+        await writeCharacteristic('ACTION', integer_be(code));
+    } catch (error) {
+        logMessage(`Failed action ${label}: ${error.message}`);
+    }
+}
+
+/**
+ * Render the action buttons for the selected device: common actions plus any
+ * per-type extras. Rebuilt on device-type change and connection-state change.
+ */
+function renderCustomActions() {
+    const box = document.getElementById('deviceCustomActions');
+    box.innerHTML = '';
+    const cfg = deviceConfigurations[DeviceType];
+    if (!cfg) return;   // no device selected
+    const actions = [...commonActions, ...(cfg.actions || [])];
+    for (const a of actions) {
+        const btn = document.createElement('button');
+        btn.textContent = a.label;
+        btn.disabled = !isConnected;
+        btn.onclick = () => sendActionCode(a.code, a.label);
+        box.appendChild(btn);
+    }
+}
+
+/**
  * Render configuration form based on parameter definitions
  * @param {HTMLElement} container - Container element
  * @param {Object} parameters - Parameter definitions
@@ -674,6 +765,8 @@ function renderConfigForm() {
     
     table.appendChild(tbody);
     configForm.appendChild(table);
+
+    renderCustomActions();
 }
 
 /**
@@ -800,13 +893,25 @@ async function connectToDevice() {
             logMessage('ERROR: Failed to auto-read parameters: ' + readError.message);
         }
         
-        // Try to auto-select device type based on Bluetooth name
-        const detectedDeviceType = getDeviceTypeFromBluetoothName(bluetoothDevice.name);
-        if (detectedDeviceType) {
-            logMessage(`Auto-detected device type: ${detectedDeviceType}`);
+        // Select device type: name matching when Auto is checked, else the manual selection
+        let selectedDeviceType;
+        if (autoDetectCheckbox.checked) {
+            selectedDeviceType = getDeviceTypeFromBluetoothName(bluetoothDevice.name);
+            if (selectedDeviceType) {
+                logMessage(`Auto-detected device type: ${selectedDeviceType}`);
+                updateDeviceTypeSelect(selectedDeviceType);
+            } else {
+                logMessage(`Could not auto-detect device type from name: ${bluetoothDevice.name}`);
+            }
+        } else {
+            selectedDeviceType = deviceTypeSelect.value;
+            if (selectedDeviceType) {
+                logMessage(`Using selected device type: ${selectedDeviceType}`);
+                DeviceType = selectedDeviceType;
+            }
+        }
 
-            updateDeviceTypeSelect(detectedDeviceType);
-
+        if (selectedDeviceType) {
             // Update config display on UI
             renderConfigForm();
 
@@ -899,6 +1004,7 @@ function onDisconnected() {
     deviceInfoService = null;
     firmwareCharacteristic = null;
     deviceCharacteristics = {};
+    updateStatus('Not connected');
     logMessage('Disconnected');
     updateConnectionUI(false);
 }
@@ -1020,6 +1126,46 @@ function miscBufferToConfig(view) {
 }
 
 /**
+ * WR3 MISC config object (see doc/ble_config.md).
+ * [0..3] tilt_offset be32 | [4..7] tilt_angle be32 | profile[i] at 8 + i*6
+ */
+function configToMiscBufferWR3() {
+    const buffer = new ArrayBuffer(32);
+    const view = new DataView(buffer);
+
+    view.setUint32(0, GlobalConfig.tiltOffset || 0, false);
+    view.setUint32(4, GlobalConfig.tiltAngle || 0, false);
+
+    for (let i = 0; i < 2; i++) {
+        const o = 8 + i * 6;
+        const flags = (GlobalConfig['psm' + i] ? 0x01 : 0) | (GlobalConfig['nbiot' + i] ? 0x02 : 0);
+        view.setUint8(o, (GlobalConfig['carrier' + i] || 0) & 0xFF);
+        view.setUint8(o + 1, flags);
+        view.setUint16(o + 2, GlobalConfig['timeout' + i] || 0, false);
+        view.setUint8(o + 4, (GlobalConfig['failHrs' + i] || 0) & 0xFF);
+        view.setUint8(o + 5, (GlobalConfig['retryHrs' + i] || 0) & 0xFF);
+    }
+
+    return buffer;
+}
+
+function miscBufferToConfigWR3(view) {
+    GlobalConfig.tiltOffset = view.getUint32(0, false);
+    GlobalConfig.tiltAngle = view.getUint32(4, false);
+
+    for (let i = 0; i < 2; i++) {
+        const o = 8 + i * 6;
+        const flags = view.getUint8(o + 1);
+        GlobalConfig['carrier' + i] = view.getUint8(o);
+        GlobalConfig['psm' + i]     = (flags & 0x01) === 0x01;
+        GlobalConfig['nbiot' + i]   = (flags & 0x02) === 0x02;
+        GlobalConfig['timeout' + i] = view.getUint16(o + 2, false);
+        GlobalConfig['failHrs' + i]  = view.getUint8(o + 4);
+        GlobalConfig['retryHrs' + i] = view.getUint8(o + 5);
+    }
+}
+
+/**
  * Read all device parameters into configuration object
  */
 async function readAllDeviceParameters() {
@@ -1052,7 +1198,14 @@ async function readAllDeviceParameters() {
         // Read APN
         const apnValue = await readCharacteristic('APN');
         const apnText = new TextDecoder().decode(apnValue);
-        GlobalConfig.apn = apnText.trim();
+        if (DeviceType === 'WR3') {
+            // WR3: ';'-separated per-profile APNs
+            const parts = apnText.trim().split(';');
+            GlobalConfig.apn0 = (parts[0] || '').trim();
+            GlobalConfig.apn1 = (parts[1] || '').trim();
+        } else {
+            GlobalConfig.apn = apnText.trim();
+        }
         logMessage('Read APN: ' + apnText.trim());
 
         // Read MNO
@@ -1087,12 +1240,19 @@ async function readAllDeviceParameters() {
     // Read MISC characteristic for device-specific parameters
     try {
         const miscValue = await readCharacteristic('MISC');
-        miscBufferToConfig(miscValue);
-
-        logMessage(`Tilt Angle: ${GlobalConfig.tiltAngle}`);
-        logMessage(`Pulse Event: ${GlobalConfig.pulseEvent}`);
-        logMessage(`Threshold values - Upper: ${GlobalConfig.thresholdUpper}, Lower: ${GlobalConfig.thresholdLower}, Hysteresis: ${GlobalConfig.thresholdHysteresis}`);
-        logMessage(`Drop settings - Mode: ${GlobalConfig.dropMode}, Threshold: ${GlobalConfig.dropThreshold}, Samples: ${GlobalConfig.dropSamples}`);
+        if (DeviceType === 'WR3') {
+            miscBufferToConfigWR3(miscValue);
+            logMessage(`Tilt Angle: ${GlobalConfig.tiltAngle}`);
+            for (let i = 0; i < 2; i++) {
+                logMessage(`P${i}: carrier ${GlobalConfig['carrier' + i]}, psm ${GlobalConfig['psm' + i]}, nbiot ${GlobalConfig['nbiot' + i]}, timeout ${GlobalConfig['timeout' + i]}, failHrs ${GlobalConfig['failHrs' + i]}, retryHrs ${GlobalConfig['retryHrs' + i]}`);
+            }
+        } else {
+            miscBufferToConfig(miscValue);
+            logMessage(`Tilt Angle: ${GlobalConfig.tiltAngle}`);
+            logMessage(`Pulse Event: ${GlobalConfig.pulseEvent}`);
+            logMessage(`Threshold values - Upper: ${GlobalConfig.thresholdUpper}, Lower: ${GlobalConfig.thresholdLower}, Hysteresis: ${GlobalConfig.thresholdHysteresis}`);
+            logMessage(`Drop settings - Mode: ${GlobalConfig.dropMode}, Threshold: ${GlobalConfig.dropThreshold}, Samples: ${GlobalConfig.dropSamples}`);
+        }
     } catch (error) {
         console.warn('Could not read MISC parameters:', error);
         logMessage('WARNING: Could not read MISC parameters');
@@ -1125,19 +1285,23 @@ async function writeAllParameters() {
         console.log(GlobalConfig);
     
         // Write APN
-        const apnText = GlobalConfig.apn || '';
+        const apnText = (DeviceType === 'WR3')
+            ? ((GlobalConfig.apn0 || '') + ';' + (GlobalConfig.apn1 || ''))
+            : (GlobalConfig.apn || '');
         const apnBuffer = new TextEncoder().encode(apnText);
         await writeCharacteristic('APN', apnBuffer);
         logMessage('Wrote APN: ' + apnText);
 
-        // Write MNO
-        const carrier = GlobalConfig.mnoCarrier & 0x0F;
-        const nbIot = GlobalConfig.mnoNbIot ? 0x10 : 0;
-        const euicc = GlobalConfig.mnoEuicc ? 0x20 : 0;
-        const mnoInt = carrier | nbIot | euicc;
-        const mnoValue = new Uint8Array([mnoInt]);
-        await writeCharacteristic('MNO', mnoValue);
-        logMessage(`Wrote MNO: ${mnoInt} (Carrier: ${carrier}, NB-IoT: ${GlobalConfig.mnoNbIot}, eUICC: ${GlobalConfig.mnoEuicc})`);
+        // Write MNO (not used by WR3 — profile carrier goes in MISC)
+        if (DeviceType !== 'WR3') {
+            const carrier = GlobalConfig.mnoCarrier & 0x0F;
+            const nbIot = GlobalConfig.mnoNbIot ? 0x10 : 0;
+            const euicc = GlobalConfig.mnoEuicc ? 0x20 : 0;
+            const mnoInt = carrier | nbIot | euicc;
+            const mnoValue = new Uint8Array([mnoInt]);
+            await writeCharacteristic('MNO', mnoValue);
+            logMessage(`Wrote MNO: ${mnoInt} (Carrier: ${carrier}, NB-IoT: ${GlobalConfig.mnoNbIot}, eUICC: ${GlobalConfig.mnoEuicc})`);
+        }
 
         const hbInterval = GlobalConfig.heartbeatInterval || 0;
         const hbValue = new Uint8Array([hbInterval]);
@@ -1157,13 +1321,21 @@ async function writeAllParameters() {
         logMessage('Wrote GPS Interval: ' + gpsInterval);
 
         // Write to the MISC characteristic
-        await writeCharacteristic('MISC', configToMiscBuffer());
+        await writeCharacteristic('MISC',
+            (DeviceType === 'WR3') ? configToMiscBufferWR3() : configToMiscBuffer());
 
-        logMessage(`Wrote threshold values - Upper: ${GlobalConfig.thresholdUpper}, Lower: ${GlobalConfig.thresholdLower}, Hysteresis: ${GlobalConfig.thresholdHysteresis}`);
-        logMessage(`Wrote drop settings - Mode: ${GlobalConfig.dropMode}, Threshold: ${GlobalConfig.dropThreshold}, Samples: ${GlobalConfig.dropSamples}`);
-        logMessage(`Wrote Water Rat - Tilt Angle: ${GlobalConfig.tiltAngle}`);
-        logMessage(`Wrote Pulse Event: ${GlobalConfig.pulseEvent}`);
-        logMessage(`Wrote Trans delay: ${GlobalConfig.transmitDelay}`);
+        if (DeviceType === 'WR3') {
+            logMessage(`Wrote Tilt Angle: ${GlobalConfig.tiltAngle}`);
+            for (let i = 0; i < 2; i++) {
+                logMessage(`Wrote P${i}: carrier ${GlobalConfig['carrier' + i]}, psm ${GlobalConfig['psm' + i]}, nbiot ${GlobalConfig['nbiot' + i]}, timeout ${GlobalConfig['timeout' + i]}, failHrs ${GlobalConfig['failHrs' + i]}, retryHrs ${GlobalConfig['retryHrs' + i]}`);
+            }
+        } else {
+            logMessage(`Wrote threshold values - Upper: ${GlobalConfig.thresholdUpper}, Lower: ${GlobalConfig.thresholdLower}, Hysteresis: ${GlobalConfig.thresholdHysteresis}`);
+            logMessage(`Wrote drop settings - Mode: ${GlobalConfig.dropMode}, Threshold: ${GlobalConfig.dropThreshold}, Samples: ${GlobalConfig.dropSamples}`);
+            logMessage(`Wrote Water Rat - Tilt Angle: ${GlobalConfig.tiltAngle}`);
+            logMessage(`Wrote Pulse Event: ${GlobalConfig.pulseEvent}`);
+            logMessage(`Wrote Trans delay: ${GlobalConfig.transmitDelay}`);
+        }
         logMessage('All parameters written successfully');
     } catch (error) {
         console.error('Error writing parameters:', error);
@@ -1405,6 +1577,8 @@ async function transferDeviceLogs() {
             
             // Parse log response: <len> <msg: 10> <msg: 10> ...
             const totalLen = arr[0];
+            if (totalLen == 0) break;
+
             let offset = 1;
             while (offset + 10 <= arr.length && offset < totalLen + 1) {
                 let slc = arr.slice(offset, offset + 10);
@@ -1421,6 +1595,21 @@ async function transferDeviceLogs() {
 
         // Write 101 to ACTION to end log transfer
         await writeCharacteristic('ACTION', integer_be(101));
+    } catch (err) {
+        alert('Error during log transfer: ' + err.message);
+    }
+}
+
+// Erase logs from device
+async function eraseDeviceLogs() {
+    clearDeviceLogOutput();
+    if (!isConnected || !deviceCharacteristics.ACTION || !deviceCharacteristics.MISC) {
+        alert('Device not connected or required characteristics missing.');
+        return;
+    }
+    try {
+        // Write 102 to ACTION to clear logs
+        await writeCharacteristic('ACTION', integer_be(102));
     } catch (err) {
         alert('Error during log transfer: ' + err.message);
     }
@@ -1696,11 +1885,7 @@ function updateConnectionUI(connected) {
     if (readBtn) readBtn.disabled = !connected;
     if (writeBtn) writeBtn.disabled = !connected;
     
-    // Enable/disable action buttons
-    if (sendMessageBtn) sendMessageBtn.disabled = !connected;
-    if (readSensorBtn) readSensorBtn.disabled = !connected;
-    if (commissionBtn) commissionBtn.disabled = !connected;
-    if (decommissionBtn) decommissionBtn.disabled = !connected;
+    // Global action buttons (per-type actions handled by renderCustomActions)
     if (rebootBtn) rebootBtn.disabled = !connected;
     if (factoryResetBtn) factoryResetBtn.disabled = !connected;
     if (factorySkipBtn) factorySkipBtn.disabled = !connected;
@@ -1715,14 +1900,21 @@ function updateConnectionUI(connected) {
     if (diagGpsStatBtn) diagGpsStatBtn.disabled = !connected;
 
     if (transferLogsBtn) transferLogsBtn.disabled = !isConnected;
+    if (eraseLogsBtn) eraseLogsBtn.disabled = !isConnected;
 
     if (firmwareStateBtn) firmwareStateBtn.disabled = !isConnected;
+
+    renderCustomActions();   // refresh per-type action buttons' enabled state
 }
 
 // Initialize UI when page loads
 initDeviceTypeDropdown();
 
 deviceTypeSelect.onchange = deviceTypeSelectUpdated;
+
+const autoDetectCheckbox = document.getElementById('autoDetect');
+autoDetectCheckbox.onchange = autoDetectUpdated;
+autoDetectUpdated();   // apply initial enabled/disabled state
 
 connectBtn.onclick = connectToDevice;
 disconnectBtn.onclick = disconnectDevice;
@@ -1734,10 +1926,6 @@ rebootBtn.onclick = rebootDevice;
 factoryResetBtn.onclick = factoryResetDevice;
 factorySkipBtn.onclick = factorySkipDevice;
 
-sendMessageBtn.onclick = function() { performAction('SEND_MESSAGE'); };
-readSensorBtn.onclick = function() { performAction('READ_SENSOR'); };
-commissionBtn.onclick = function() { performAction('COMMISSION'); };
-decommissionBtn.onclick = function() { performAction('DECOMMISSION'); };
 
 diagWakeBtn.onclick = function() { sendModemDiagAction(0); };
 diagSleepBtn.onclick = function() { sendModemDiagAction(1); };
@@ -1750,6 +1938,7 @@ diagGpsStatBtn.onclick = function() { sendModemDiagAction(9); };
 comLogClearBtn.onclick = clearLog;
 
 transferLogsBtn.onclick = transferDeviceLogs;
+eraseLogsBtn.onclick = eraseDeviceLogs;
 saveLogsBtn.onclick = saveDeviceLogsToFile;
 
 firmwareStateBtn.onclick = readImageState;
