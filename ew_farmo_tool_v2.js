@@ -111,8 +111,30 @@ const SENSORS = {
     0x06: { name: "Temp",       fmt: "be32", unit: "" },
     0x07: { name: "SDI-12",     fmt: "be32", unit: "measurements" },
     0x08: { name: "SDI-12 raw", fmt: "ascii", unit: "" },
-    0x09: { name: "Radar",      fmt: "be32", unit: "mm" }
+    0x09: { name: "Radar",      fmt: "be32", unit: "mm" },
+    0x0A: { name: "Load",       fmt: "be32", unit: "mA" },
+    0x0B: { name: "Load rail",  fmt: "be32", unit: "mV" },
+    0x0C: { name: "Battery",    fmt: "be32", unit: "mV" },
+    /* 17-byte composite, sent once as a measurement window closes. See
+     * FARMO_BT_SENSOR_LOAD_WINDOW in farmo_bluetooth.h. */
+    0x0D: { name: "Load window", fmt: "loadwindow", unit: "" }
 };
+
+/* Decode FARMO_BT_SENSOR_LOAD_WINDOW. `view` is the whole event; the payload
+ * starts at offset 2. Returns null if it is too short to trust. */
+function decodeLoadWindow(view) {
+    if (view.byteLength < 2 + 17) {
+        return null;
+    }
+    return {
+        meanUa:   view.getInt32(2, false),
+        minMa:    view.getInt32(6, false),
+        maxMa:    view.getInt32(10, false),
+        windowS:  view.getUint16(14, false),
+        samples:  view.getUint16(16, false),
+        isReport: view.getUint8(18) === 1
+    };
+}
 
 /* COMMAND (0xCC32) codes. [0] = cmd, [1..] = optional data. */
 const CMD_SEND_MESSAGE  = 1;
@@ -137,9 +159,15 @@ const CMD_CELL_STATS    = 204;
  * first 16 are the shared layout, so the tail is decoded only when present. */
 const CFG_LEN_BASE  = 16;
 const CFG_LEN_ANALO = 28;
-/* Bytes 28..36 were added for batmon. A device built before them reports 28
- * bytes and must still decode everything up to CFG_LEN_ANALO. */
-const CFG_LEN_BATMON = 37;
+/* Bytes 28..34 carry the heart-beat schedule. Three of the four settings are
+ * generic, so every ew_farmo_analog_nrf91 variant reports 35 bytes once it is
+ * rebuilt; a variant still on older firmware reports 28 and decodes only up to
+ * CFG_LEN_ANALO. Bytes 28..36 previously held a batmon range profile and a
+ * calibration pair that the firmware never applied to a reading -- the INA228
+ * calibrates from devicetree -- so they were removed rather than kept as a
+ * hole. Nothing shipped with the old 37-byte layout. Bytes 35..38 report the
+ * device's current-measurement full scale, read only. */
+const CFG_LEN_SCHED = 39;
 const PROFILE_COUNT = 2;
 const PROFILE_LEN     = 32;
 const PROFILE_APN_OFF = 8;
@@ -240,32 +268,55 @@ const tankDepthSetting = {
     }
 };
 
-/* Batmon reuses CONFIG bytes 8..11, 12..15 and 23. It has no tilt, no tank and
- * no pulse input. See config_get()/config_set() in farmo_analog_bluetooth.c. */
-const batmonSettings = {
-    batmonProfile: {
+/* CONFIG bytes 28..33. Ranges match the checks in farmo_analog_config.c --
+ * the device rejects anything outside them and logs why, so keep the two in
+ * step. */
+const scheduleSettings = {
+    timeSync: {
         type: "select",
-        label: "Current sense profile",
+        label: "Align heartbeat to time of day",
         options: [
-            { value: 0, display: "0 - 10 A" },
-            { value: 1, display: "1 - 20 A" },
-            { value: 2, display: "2 - 50 A" }
+            { value: 0, display: "0 - free-running" },
+            { value: 1, display: "1 - aligned" }
         ],
-        default: 0
+        default: 1
     },
-    batmonCalScale: {
+    hbStart: {
         type: "number",
-        label: "Calibration scale (x1000)",
-        default: 1000,
-        min: 1,
-        max: 1000000
-    },
-    batmonCalOffset: {
-        type: "number",
-        label: "Calibration offset (raw)",
+        label: "Schedule anchor (minutes after midnight)",
         default: 0,
-        min: -1000000,
-        max: 1000000
+        min: 0,
+        max: 1439
+    },
+    hbWindow: {
+        type: "number",
+        label: "Random spread per send (minutes, 0 = off)",
+        default: 0,
+        min: 0,
+        max: 720
+    }
+};
+
+/* CONFIG bytes 33..34, batmon only. The device also rejects a window that does
+ * not fit the sense interval currently set, so a value valid here can still be
+ * refused -- lengthen the interval first. */
+const sampleWindowSetting = {
+    sampleWindow: {
+        type: "number",
+        label: "Measurement window (seconds)",
+        default: 60,
+        min: 2,
+        max: 3600
+    },
+    /* CONFIG bytes 35..38, read only. The largest current the fitted shunt and
+     * the INA228's LSB can measure between them. Readings near it are clipped
+     * and under-report, which the device also flags in alarm bit 2 -- this is
+     * the number that makes that bit mean something on the bench. */
+    batmonFullScale: {
+        type: "number",
+        label: "Max measurable current (mA)",
+        default: 0,
+        readOnly: true
     }
 };
 
@@ -339,6 +390,54 @@ const dropSettings = {
         default: 0,
         min: 1,
         max: 10
+    }
+};
+
+/* CONFIG bytes 24..27 and 21..22, batmon only.
+ *
+ * The batmon variant reuses the voltage-drop triple rather than adding fields
+ * of its own, so these are the same bytes dropSettings writes -- only the
+ * meaning differs. Mode is a bitfield there: bit 0 runs the load presence
+ * check, bit 1 the battery low check. See BATMON_CHECK_* in
+ * farmo_analog_config.h.
+ *
+ * Both checks ship off. A threshold nobody chose would alarm on the first
+ * window after commissioning. */
+const batmonAlarmSettings = {
+    dropMode: {
+        type: "select",
+        label: "Load alarms enabled",
+        options: [
+            { value: 0, display: "0 - none" },
+            { value: 1, display: "1 - load presence" },
+            { value: 2, display: "2 - battery low" },
+            { value: 3, display: "3 - both" }
+        ],
+        default: 0
+    },
+    dropThreshold: {
+        type: "number",
+        label: "Battery low threshold (mV)",
+        default: 11500,
+        min: 0,
+        max: 32767
+    },
+    dropSamples: {
+        type: "number",
+        label: "Consecutive windows before alarming",
+        default: 2,
+        min: 1,
+        max: 25
+    },
+    /* Shares analog_hysteresis, CONFIG bytes 21..22. The battery alarm clears
+     * above threshold + this, so a battery sitting on the threshold does not
+     * flap the alarm every window. */
+    thresholdHysteresis: {
+        type: "number",
+        label: "Battery recovery band (mV)",
+        default: 300,
+        min: 0,
+        max: 32767
     }
 };
 
@@ -453,22 +552,35 @@ const deviceConfigurations = {
     },
     "BATM": {
         name: "Battery Monitor",
-        cfgLen: CFG_LEN_BATMON,
+        cfgLen: CFG_LEN_SCHED,
         parameters: {
             ...readOnlyParameters,
             heartbeatInterval: intervalSettings.heartbeatInterval,
-            /* This variant builds with CONFIG_SENSE_SECONDS, so the sense
-             * interval is seconds, not minutes. */
-            sensorInterval: {
-                ...intervalSettings.sensorInterval,
-                label: "Sensor Interval (seconds)",
-                min: 1,
-                max: 255
+            /* Minutes. This variant used to build with CONFIG_SENSE_SECONDS;
+             * it no longer does, and the interval drives both the liveness
+             * check and the sample timer. */
+            sensorInterval: intervalSettings.sensorInterval,
+            ...scheduleSettings,
+            ...sampleWindowSetting,
+            ...batmonAlarmSettings,
+            /* CONFIG byte 3, shared base layout -- the codec already reads and
+             * writes it, this only exposes it. Counted in heart-beats, and 0
+             * is the sensible setting for a fixed asset: commissioning forces
+             * a fix regardless, and so does selecting the NTN profile. */
+            gpsInterval: {
+                type: "number",
+                label: "GPS Interval (heart-beats, 0 = off)",
+                default: 0,
+                min: 0,
+                max: 24
             },
-            ...batmonSettings,
             ...transmitDelaySetting,
             ...profileSettings
-        }
+        },
+        actions: [
+            { label: "GPS Start",     code: CMD_GPS_START },
+            { label: "GPS Stop",      code: CMD_GPS_STOP },
+        ]
     },
     "WPS": {
         name: "WPS Pressure",
@@ -658,9 +770,9 @@ function variantUsesTankDepth() {
     return 'tankDepth' in getDeviceTypeParameters(DeviceType);
 }
 
-/** Whether the selected variant puts batmon fields in the shared slots. */
-function variantUsesBatmon() {
-    return 'batmonProfile' in getDeviceTypeParameters(DeviceType);
+/** Whether the selected variant carries the heart-beat schedule tail. */
+function variantUsesSchedule() {
+    return 'timeSync' in getDeviceTypeParameters(DeviceType);
 }
 
 function getDeviceTypeParameters(deviceType) {
@@ -1198,9 +1310,11 @@ async function writeCharacteristic(characteristicKey, value) {
  *  24  1  vdrop_mode             0=off, 1=cumulative, 2=constant
  *  25  2  vdrop_thresh    be16   signed, mV
  *  27  1  vdrop_samples
- *  28  1  batmon_profile         range profile index, batmon only
- *  29  4  batmon_cal_scale be32   signed, x1000, batmon only
- *  33  4  batmon_cal_offset be32  signed, batmon only
+ *  28  1  time_sync_en           0/1, align the heartbeat to the clock
+ *  29  2  hb_start        be16   minutes after local midnight
+ *  31  2  hb_window       be16   random spread per send, minutes
+ *  33  2  sample_window   be16   measurement window seconds, batmon only
+ *  35  4  batmon_full_scale be32  mA, READ ONLY, 0 if no current sensor
  ************************************************************************/
 
 function configDecode(view) {
@@ -1226,13 +1340,15 @@ function configDecode(view) {
     GlobalConfig.dropThreshold = view.getInt16(25, false);
     GlobalConfig.dropSamples = view.getUint8(27);
 
-    if (view.byteLength < CFG_LEN_BATMON) {
+    if (view.byteLength < CFG_LEN_SCHED) {
         return;
     }
 
-    GlobalConfig.batmonProfile = view.getUint8(28);
-    GlobalConfig.batmonCalScale = view.getInt32(29, false);
-    GlobalConfig.batmonCalOffset = view.getInt32(33, false);
+    GlobalConfig.timeSync = view.getUint8(28);
+    GlobalConfig.hbStart = view.getUint16(29, false);
+    GlobalConfig.hbWindow = view.getUint16(31, false);
+    GlobalConfig.sampleWindow = view.getUint16(33, false);
+    GlobalConfig.batmonFullScale = view.getInt32(35, false);
 }
 
 function configEncode(len) {
@@ -1261,13 +1377,22 @@ function configEncode(len) {
     view.setInt16(25, GlobalConfig.dropThreshold || 0, false);
     view.setUint8(27, GlobalConfig.dropSamples || 0);
 
-    if (len < CFG_LEN_BATMON) {
+    if (len < CFG_LEN_SCHED) {
         return buffer;
     }
 
-    view.setUint8(28, GlobalConfig.batmonProfile || 0);
-    view.setInt32(29, GlobalConfig.batmonCalScale || 0, false);
-    view.setInt32(33, GlobalConfig.batmonCalOffset || 0, false);
+    view.setUint8(28, GlobalConfig.timeSync ? 1 : 0);
+    view.setUint16(29, GlobalConfig.hbStart || 0, false);
+    view.setUint16(31, GlobalConfig.hbWindow || 0, false);
+    /* Not every variant with the schedule tail exposes a measurement window.
+     * The tool reads CONFIG before it writes, so this normally carries the
+     * device's own value straight back. Fall back to the firmware default
+     * rather than 0, which is out of range and would make the device log a
+     * rejection for a field the user never touched. */
+    view.setUint16(33, GlobalConfig.sampleWindow || 60, false);
+    /* Read only on the device, which ignores these bytes. Echoed back so a
+     * read-then-write round trip is byte-identical. */
+    view.setInt32(35, GlobalConfig.batmonFullScale || 0, false);
 
     return buffer;
 }
@@ -1426,17 +1551,27 @@ async function readAllDeviceParameters() {
                    `gps ${GlobalConfig.gpsInterval}, commissioned ${GlobalConfig.commissioned}`);
         if (configLenSeen >= CFG_LEN_ANALO) {
             logMessage(`  thresholds - upper ${GlobalConfig.thresholdUpper}, lower ${GlobalConfig.thresholdLower}, hyst ${GlobalConfig.thresholdHysteresis}`);
-            if (variantUsesBatmon()) {
-                logMessage(`  batmon - profile ${GlobalConfig.batmonProfile}, ` +
-                           `cal scale ${GlobalConfig.batmonCalScale}, ` +
-                           `cal offset ${GlobalConfig.batmonCalOffset}`);
-            }
-            else if (variantUsesTankDepth()) {
+            if (variantUsesTankDepth()) {
                 logMessage(`  radar - tank depth ${GlobalConfig.tankDepth} mm`);
             } else {
                 logMessage(`  drop - mode ${GlobalConfig.dropMode}, threshold ${GlobalConfig.dropThreshold}, samples ${GlobalConfig.dropSamples}`);
             }
-        } else {
+        }
+        if (configLenSeen >= CFG_LEN_SCHED) {
+            logMessage(`  schedule - time sync ${GlobalConfig.timeSync}, ` +
+                       `anchor ${GlobalConfig.hbStart} min, ` +
+                       `spread ${GlobalConfig.hbWindow} min, ` +
+                       `window ${GlobalConfig.sampleWindow} s`);
+            if (GlobalConfig.batmonFullScale) {
+                logMessage(`  hardware - max measurable current ${GlobalConfig.batmonFullScale} mA`);
+                logMessage(`  alarms - mode ${GlobalConfig.dropMode} ` +
+                           `(bit0 load presence, bit1 battery low), ` +
+                           `battery below ${GlobalConfig.dropThreshold} mV, ` +
+                           `clears above +${GlobalConfig.thresholdHysteresis} mV, ` +
+                           `${GlobalConfig.dropSamples} windows`);
+            }
+        }
+        if (configLenSeen < CFG_LEN_ANALO) {
             logMessage(`  tilt - angle ${GlobalConfig.tiltAngle}, offset ${GlobalConfig.tiltOffset}`);
         }
     } catch (error) {
@@ -1556,7 +1691,20 @@ function handleEventNotification(event) {
                     return;
                 }
 
-                if (sensor.fmt === 'ascii') {
+                if (sensor.fmt === 'loadwindow') {
+                    const w = decodeLoadWindow(view);
+                    if (!w) {
+                        logMessage(`SENSOR ${sensor.name}: short payload, ${dataLen} bytes`);
+                        return;
+                    }
+                    /* Mirrors the device's own "Batmon load check" log line.
+                     * The mean is charge-derived, so it is the figure to trust
+                     * on a flashing load -- min/max/n only describe what the
+                     * samples happened to catch. */
+                    logMessage(`WINDOW ${w.isReport ? 'report' : 'check'}: ` +
+                               `${w.meanUa} uA mean over ${w.windowS} s ` +
+                               `(min ${w.minMa} mA, max ${w.maxMa} mA, n=${w.samples})`);
+                } else if (sensor.fmt === 'ascii') {
                     const bytes = new Uint8Array(view.buffer, view.byteOffset + 2, dataLen);
                     const text = new TextDecoder().decode(bytes).replace(/\0+$/, '');
                     logMessage(`SENSOR ${sensor.name}: ${text}`);
