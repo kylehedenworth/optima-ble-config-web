@@ -167,7 +167,7 @@ const CFG_LEN_ANALO = 28;
  * calibrates from devicetree -- so they were removed rather than kept as a
  * hole. Nothing shipped with the old 37-byte layout. Bytes 35..38 report the
  * device's current-measurement full scale, read only. */
-const CFG_LEN_SCHED = 39;
+const CFG_LEN_SCHED = 51;
 const PROFILE_COUNT = 2;
 const PROFILE_LEN     = 32;
 const PROFILE_APN_OFF = 8;
@@ -409,9 +409,13 @@ const batmonAlarmSettings = {
         label: "Load alarms enabled",
         options: [
             { value: 0, display: "0 - none" },
-            { value: 1, display: "1 - load presence" },
+            { value: 1, display: "1 - no load current" },
             { value: 2, display: "2 - battery low" },
-            { value: 3, display: "3 - both" }
+            { value: 3, display: "3 - current + battery" },
+            { value: 4, display: "4 - no load voltage" },
+            { value: 5, display: "5 - current + voltage" },
+            { value: 6, display: "6 - voltage + battery" },
+            { value: 7, display: "7 - all three" }
         ],
         default: 0
     },
@@ -421,6 +425,40 @@ const batmonAlarmSettings = {
         default: 11500,
         min: 0,
         max: 32767
+    },
+    loadCurrentMin: {
+        type: "number",
+        label: "No load current below (mA)",
+        default: 1,
+        min: -32768,
+        max: 32767
+    },
+    curExclStart: {
+        type: "number",
+        label: "No-current exclusion start (min after midnight)",
+        default: 0, min: 0, max: 1439
+    },
+    curExclEnd: {
+        type: "number",
+        label: "No-current exclusion end (set equal to start to disable)",
+        default: 0, min: 0, max: 1439
+    },
+    loadVoltageMin: {
+        type: "number",
+        label: "No load voltage below (mV)",
+        default: 6000,
+        min: 0,
+        max: 65535
+    },
+    voltExclStart: {
+        type: "number",
+        label: "No-voltage exclusion start (min after midnight)",
+        default: 0, min: 0, max: 1439
+    },
+    voltExclEnd: {
+        type: "number",
+        label: "No-voltage exclusion end (set equal to start to disable)",
+        default: 0, min: 0, max: 1439
     },
     dropSamples: {
         type: "number",
@@ -1316,7 +1354,8 @@ async function writeCharacteristic(characteristicKey, value) {
  *  19  2  analog_lower    be16   signed
  *  21  2  analog_hyst     be16   signed
  *  23  1  pulse_en               0/1
- *  24  1  vdrop_mode             0=off, 1=cumulative, 2=constant
+ *  24  1  vdrop_mode             analog: 0=off, 1=cumulative, 2=constant
+ *                                batmon: bit0 current, bit1 battery, bit2 volts
  *  25  2  vdrop_thresh    be16   signed, mV
  *  27  1  vdrop_samples
  *  28  1  time_sync_en           0/1, align the heartbeat to the clock
@@ -1324,6 +1363,12 @@ async function writeCharacteristic(characteristicKey, value) {
  *  31  2  hb_window       be16   random spread per send, minutes
  *  33  2  sample_window   be16   measurement window seconds, batmon only
  *  35  4  batmon_full_scale be32  mA, READ ONLY, 0 if no current sensor
+ *  39  2  load_current_min  be16  signed, mA; below it, no-load-current
+ *  41  2  cur_excl_start    be16  minutes after local midnight
+ *  43  2  cur_excl_end      be16  equal to start means no exclusion
+ *  45  2  load_voltage_min  be16  mV; below it, no-load-voltage
+ *  47  2  volt_excl_start   be16
+ *  49  2  volt_excl_end     be16
  ************************************************************************/
 
 function configDecode(view) {
@@ -1358,6 +1403,12 @@ function configDecode(view) {
     GlobalConfig.hbWindow = view.getUint16(31, false);
     GlobalConfig.sampleWindow = view.getUint16(33, false);
     GlobalConfig.batmonFullScale = view.getInt32(35, false);
+    GlobalConfig.loadCurrentMin = view.getInt16(39, false);
+    GlobalConfig.curExclStart = view.getUint16(41, false);
+    GlobalConfig.curExclEnd = view.getUint16(43, false);
+    GlobalConfig.loadVoltageMin = view.getUint16(45, false);
+    GlobalConfig.voltExclStart = view.getUint16(47, false);
+    GlobalConfig.voltExclEnd = view.getUint16(49, false);
 }
 
 function configEncode(len) {
@@ -1402,6 +1453,15 @@ function configEncode(len) {
     /* Read only on the device, which ignores these bytes. Echoed back so a
      * read-then-write round trip is byte-identical. */
     view.setInt32(35, GlobalConfig.batmonFullScale || 0, false);
+
+    /* The device rejects the whole group if any window lands outside a day,
+     * so these go back as read unless the user changed them. */
+    view.setInt16(39, GlobalConfig.loadCurrentMin || 0, false);
+    view.setUint16(41, GlobalConfig.curExclStart || 0, false);
+    view.setUint16(43, GlobalConfig.curExclEnd || 0, false);
+    view.setUint16(45, GlobalConfig.loadVoltageMin || 0, false);
+    view.setUint16(47, GlobalConfig.voltExclStart || 0, false);
+    view.setUint16(49, GlobalConfig.voltExclEnd || 0, false);
 
     return buffer;
 }
