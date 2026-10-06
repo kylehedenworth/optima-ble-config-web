@@ -548,7 +548,16 @@ const deviceConfigurations = {
                 label: "Threshold Hysteresis (mm)"
             },
             ...profileSettings
-        }
+        },
+        /* Commands 201/202 are in the shared handler, not behind any product
+         * ifdef, so the radar build has always answered them -- the buttons
+         * were simply never listed here. Start runs the receiver until Stop,
+         * which is what an installer needs to site a unit; the scheduled
+         * search is separate and bounded by CONFIG_GPS_FIX_TIMEOUT_S. */
+        actions: [
+            { label: "GPS Start",     code: CMD_GPS_START },
+            { label: "GPS Stop",      code: CMD_GPS_STOP },
+        ]
     },
     "BATM": {
         name: "Battery Monitor",
