@@ -143,8 +143,9 @@ const CMD_COMMISSION    = 3;
 const CMD_DECOMMISSION  = 4;
 const CMD_FACTORY_SKIP  = 42;
 const CMD_FACTORY_REDO  = 43;
-const CMD_SELECT_NBIOT  = 50;
-const CMD_SELECT_NTN    = 51;
+/* Make profile slot 1 / 2 the primary. */
+const CMD_SET_PRIMARY_P1 = 50;
+const CMD_SET_PRIMARY_P2 = 51;
 const CMD_CLEAR_LOG     = 102;
 /* Longest command argument the app will keep -- FA_CMD_DATA_MAX in
  * farmo_analog.h, which includes the terminator. */
@@ -172,6 +173,15 @@ const PROFILE_COUNT = 2;
 const PROFILE_LEN     = 32;
 const PROFILE_APN_OFF = 8;
 const PROFILE_APN_LEN = 24;      /* NUL-padded, 23 usable */
+/* NETWORK flag bits, byte +1 of each block. */
+const PROFILE_FLAG_PSM     = 0x01;
+const PROFILE_FLAG_NBIOT   = 0x02;
+const PROFILE_FLAG_PRIMARY = 0x04;   /* set on the primary slot */
+const PROFILE_FLAG_ACTIVE  = 0x08;   /* read only: the slot in use */
+/* Active profile when the device does not report one (firmware before net_profile). */
+const PROFILE_NOT_REPORTED = 255;
+/* Analog app STATUS (0xCC34) size -- FA_STATUS_LEN in farmo_analog.h. */
+const FA_STATUS_LEN = 9;
 const NET_LEN = PROFILE_COUNT * PROFILE_LEN;
 const WR_STATUS_LEN = 13;
 
@@ -489,9 +499,20 @@ const CARRIER_OPTIONS = [
 /**
  * NETWORK (0xCC31) is one 32-byte block per profile, each with its own APN,
  * so the form fields are generated per profile rather than written out twice.
+ *
+ * Any profile may hold any carrier. One is the primary: the device prefers it
+ * and returns to it. A primary with a fail window of 0 never fails over; the
+ * retry window only applies to a profile while it is not the primary.
  */
 function profileParameters(count) {
-    const params = {};
+    const slots = [];
+    for (let i = 0; i < count; i++) {
+        slots.push({ value: i, display: `P${i + 1}` });
+    }
+
+    const params = {
+        primaryProfile: { type: "select", label: "Primary profile", options: slots, default: 0 },
+    };
     for (let i = 0; i < count; i++) {
         const n = i + 1;
         params['apn' + i]      = { type: "text",    label: `P${n} APN`, default: "", maxLength: PROFILE_APN_LEN - 1 };
@@ -500,7 +521,7 @@ function profileParameters(count) {
         params['nbiot' + i]    = { type: "boolean", label: `P${n} NB-IoT allowed`, default: true };
         params['timeout' + i]  = { type: "number",  label: `P${n} Connect timeout (s)`, default: 1200, min: 0, max: 65535 };
         params['failHrs' + i]  = { type: "number",  label: `P${n} Fail window (hrs)`, default: 48, min: 0, max: 255 };
-        params['retryHrs' + i] = { type: "number",  label: `P${n} Retry window (hrs)`, default: 0, min: 0, max: 255 };
+        params['retryHrs' + i] = { type: "number",  label: `P${n} Retry window, when not primary (hrs)`, default: 0, min: 0, max: 255 };
     }
     return params;
 }
@@ -535,8 +556,10 @@ const commonActions = [
     { label: "Decommission", code: CMD_DECOMMISSION },
     { label: "SIM Info",     code: CMD_SIM_INFO },
     { label: "Cell Info",    code: CMD_CELL_STATS },
-    { label: "Select NB-IoT",code: CMD_SELECT_NBIOT },
-    { label: "Select NTN",   code: CMD_SELECT_NTN },
+    { label: "Set P1 primary", code: CMD_SET_PRIMARY_P1,
+      confirm: 'Make P1 the primary profile? The device switches to it on its next send.' },
+    { label: "Set P2 primary", code: CMD_SET_PRIMARY_P2,
+      confirm: 'Make P2 the primary profile? The device switches to it on its next send.' },
     { label: "Skip factory test", code: CMD_FACTORY_SKIP,
       confirm: 'Mark factory testing as done? Takes effect on the next reboot.' },
     { label: "Redo factory test", code: CMD_FACTORY_REDO,
@@ -613,7 +636,7 @@ const deviceConfigurations = {
             /* CONFIG byte 3, shared base layout -- the codec already reads and
              * writes it, this only exposes it. Counted in heart-beats, and 0
              * is the sensible setting for a fixed asset: commissioning forces
-             * a fix regardless, and so does selecting the NTN profile. */
+             * a fix regardless, and so does switching to an NTN profile. */
             gpsInterval: {
                 type: "number",
                 label: "GPS Interval (heart-beats, 0 = off)",
@@ -1469,9 +1492,11 @@ function configEncode(len) {
 /************************************************************************
  *     NETWORK (0xCC31) codec
  *
- * One 32-byte block per profile, each carrying its own APN.
+ * One 32-byte block per profile, each carrying its own APN. Firmware side:
+ * lib/net_profile in optima_firmware.
  *  +0   1  carrier                0=GLOBAL, 1=AU, 2=SKYLO
- *  +1   1  flags                  bit0 psm_allowed, bit1 nbiot_allowed
+ *  +1   1  flags                  bit0 psm_allowed, bit1 nbiot_allowed,
+ *                                 bit2 primary, bit3 active (read only)
  *  +2   2  conn_timeout    be16   seconds
  *  +4   1  fail_window_hrs
  *  +5   1  retry_window_hrs
@@ -1479,20 +1504,69 @@ function configEncode(len) {
  *  +8  24  apn                    NUL-padded, 23 chars usable
  ************************************************************************/
 
+/**
+ * Decode NETWORK into GlobalConfig.
+ *
+ * Firmware before net_profile sets neither the primary nor the active bit.
+ * Then primaryProfile stays at P1 and the active profile is not reported;
+ * writing the primary bit back to such a device is harmless, it ignores it.
+ *
+ * The active slot is live state, not configuration: it goes to
+ * networkStatus for the status panel, not into GlobalConfig.
+ *
+ * @param {DataView} view  NETWORK as read.
+ * @returns {boolean} true if the device reported a primary profile.
+ */
+/* Primary and active profile as last read from NETWORK, for the status panel. */
+const networkStatus = { primary: PROFILE_NOT_REPORTED, active: PROFILE_NOT_REPORTED };
+
 function networkDecode(view) {
     const count = Math.min(PROFILE_COUNT, Math.floor(view.byteLength / PROFILE_LEN));
+    let primaryReported = false;
+
+    GlobalConfig.primaryProfile = 0;
+    networkStatus.active = PROFILE_NOT_REPORTED;
 
     for (let i = 0; i < count; i++) {
         const o = i * PROFILE_LEN;
         const flags = view.getUint8(o + 1);
 
+        if (flags & PROFILE_FLAG_PRIMARY) {
+            GlobalConfig.primaryProfile = i;
+            primaryReported = true;
+        }
+        if (flags & PROFILE_FLAG_ACTIVE) {
+            networkStatus.active = i;
+        }
+
         GlobalConfig['carrier' + i]  = view.getUint8(o);
-        GlobalConfig['psm' + i]      = (flags & 0x01) === 0x01;
-        GlobalConfig['nbiot' + i]    = (flags & 0x02) === 0x02;
+        GlobalConfig['psm' + i]      = (flags & PROFILE_FLAG_PSM) !== 0;
+        GlobalConfig['nbiot' + i]    = (flags & PROFILE_FLAG_NBIOT) !== 0;
         GlobalConfig['timeout' + i]  = view.getUint16(o + 2, false);
         GlobalConfig['failHrs' + i]  = view.getUint8(o + 4);
         GlobalConfig['retryHrs' + i] = view.getUint8(o + 5);
         GlobalConfig['apn' + i]      = readFixedString(view, o + PROFILE_APN_OFF, PROFILE_APN_LEN);
+    }
+    networkStatus.primary = primaryReported ? GlobalConfig.primaryProfile
+                                            : PROFILE_NOT_REPORTED;
+    return primaryReported;
+}
+
+/**
+ * Update networkStatus from a NETWORK read without touching GlobalConfig, so
+ * refreshing the status panel never overwrites unsaved form edits.
+ *
+ * @param {DataView} view  NETWORK as read.
+ */
+function networkStatusOnly(view) {
+    const count = Math.min(PROFILE_COUNT, Math.floor(view.byteLength / PROFILE_LEN));
+
+    networkStatus.primary = PROFILE_NOT_REPORTED;
+    networkStatus.active = PROFILE_NOT_REPORTED;
+    for (let i = 0; i < count; i++) {
+        const flags = view.getUint8(i * PROFILE_LEN + 1);
+        if (flags & PROFILE_FLAG_PRIMARY) networkStatus.primary = i;
+        if (flags & PROFILE_FLAG_ACTIVE) networkStatus.active = i;
     }
 }
 
@@ -1503,8 +1577,11 @@ function networkEncode() {
 
     for (let i = 0; i < PROFILE_COUNT; i++) {
         const o = i * PROFILE_LEN;
-        const flags = (GlobalConfig['psm' + i] ? 0x01 : 0) |
-                      (GlobalConfig['nbiot' + i] ? 0x02 : 0);
+        /* The primary bit goes on exactly one slot. The active bit is read
+         * only and never written. */
+        const flags = (GlobalConfig['psm' + i] ? PROFILE_FLAG_PSM : 0) |
+                      (GlobalConfig['nbiot' + i] ? PROFILE_FLAG_NBIOT : 0) |
+                      (GlobalConfig.primaryProfile === i ? PROFILE_FLAG_PRIMARY : 0);
 
         view.setUint8(o, (GlobalConfig['carrier' + i] || 0) & 0xFF);
         view.setUint8(o + 1, flags);
@@ -1523,7 +1600,9 @@ function networkEncode() {
  *
  * Water Rat, 13 bytes:
  *   0   1  alarm_bits
- *   1   1  profile_bits      bit0 = NTN profile active
+ *   1   1  profile_bits      bit0 = P2 active (clear = P1),
+ *                              bit1 = running on the fallback (active != primary).
+ *                              Before net_profile, bit0 meant "NTN profile active". 
  *   2  10  modem_error_code[10]
  *  12   1  device_error_code
  *
@@ -1557,9 +1636,79 @@ function statusDecodeWaterRat(view) {
     const deviceError = view.getUint8(12);
 
     let html = `Alarms: ${active.length ? active.join(', ') : 'none'}<br/>`;
-    html += `Profile: ${(profile & 0x01) ? 'NTN' : 'NB-IoT'}<br/>`;
+    html += profileStatusLine(profile);
     html += `Modem errors: ${modemErrors.length ? modemErrors.join(', ') : 'none'}<br/>`;
     html += `Device error: ${deviceError}`;
+    return html;
+}
+
+/**
+ * "P1" / "P2" for a slot index, or "not reported".
+ *
+ * @param {number} slot  Slot index, or PROFILE_NOT_REPORTED.
+ * @returns {string}
+ */
+function profileName(slot) {
+    return (slot === PROFILE_NOT_REPORTED) ? 'not reported' : `P${slot + 1}`;
+}
+
+/**
+ * Profile lines for the status panel: the primary, then the active profile.
+ *
+ * Active and fallback come from the STATUS profile byte, which both apps lay
+ * out the same: bit0 = P2 active, bit1 = running on the fallback. The primary
+ * comes from the last NETWORK read, the only place the device reports it;
+ * firmware before net_profile does not, so it shows as not reported.
+ *
+ * @param {number} bits  STATUS byte 1.
+ * @returns {string} HTML, two lines, each with a trailing <br/>.
+ */
+function profileStatusLine(bits) {
+    let html = `Primary profile: ${profileName(networkStatus.primary)}<br/>`;
+    html += `Active profile: ${(bits & 0x01) ? 'P2' : 'P1'}`;
+    if (bits & 0x02) {
+        html += ' (on the fallback)';
+    }
+    return html + '<br/>';
+}
+
+const FA_ALARM_BITS = [
+    "Commissioning", "Heartbeat", "Retry", "Rebooted", "P2 active", "Modem error"
+];
+
+/**
+ * Decode the analog app's STATUS object. Layout: farmo_analog_get_status()
+ * in farmo_analog.h.
+ *
+ * @param {DataView} view  STATUS as read.
+ * @returns {string} HTML for the status panel.
+ */
+function statusDecodeAnalog(view) {
+    if (view.byteLength < FA_STATUS_LEN) {
+        return `STATUS too short: ${view.byteLength} bytes`;
+    }
+
+    const alarms = view.getUint8(0);
+    const profile = view.getUint8(1);
+    const appAlarms = view.getUint8(2);
+    const rsrp = view.getUint8(3);
+    const rsrq = view.getUint8(4);
+    const battery = view.getUint16(5, false);
+    const temperature = view.getInt16(7, false);
+
+    const active = [];
+    for (let i = 0; i < FA_ALARM_BITS.length; i++) {
+        /* bit 4 is the profile, shown on its own line */
+        if (i !== 4 && (alarms & (1 << i))) active.push(FA_ALARM_BITS[i]);
+    }
+
+    let html = `Alarms: ${active.length ? active.join(', ') : 'none'}<br/>`;
+    html += profileStatusLine(profile);
+    html += `App alarms: 0x${appAlarms.toString(16).padStart(2, '0').toUpperCase()}<br/>`;
+    html += `Signal: RSRP ${rsrp === 255 ? 'unknown' : '-' + rsrp + ' dBm'}, ` +
+            `RSRQ ${rsrq === 255 ? 'unknown' : '-' + rsrq + ' dB'}<br/>`;
+    html += `Battery: ${battery} mV<br/>`;
+    html += `Temperature: ${(temperature / 100).toFixed(2)} &deg;C`;
     return html;
 }
 
@@ -1576,9 +1725,19 @@ async function refreshDeviceStatus() {
             return;
         }
 
+        /* The primary is only in NETWORK; refresh it so the profile line is
+         * current, but a failure here must not hide the rest of the status. */
+        try {
+            networkStatusOnly(await readCharacteristic('NETWORK'));
+        } catch (error) {
+            console.warn('Could not read NETWORK for status:', error);
+        }
+
         const cfg = deviceConfigurations[DeviceType];
         if (cfg && cfg.status === 'waterRat') {
             statusInfoDiv.innerHTML = statusDecodeWaterRat(value);
+        } else if (value.byteLength >= FA_STATUS_LEN) {
+            statusInfoDiv.innerHTML = statusDecodeAnalog(value);
         } else {
             /* Unknown layout -- show the raw bytes rather than guess */
             const arr = new Uint8Array(value.buffer);
@@ -1650,7 +1809,13 @@ async function readAllDeviceParameters() {
 
     try {
         const netValue = await readCharacteristic('NETWORK');
-        networkDecode(netValue);
+        if (networkDecode(netValue)) {
+            logMessage(`Primary profile P${GlobalConfig.primaryProfile + 1}, active ` +
+                       `${profileName(networkStatus.active)}`);
+        } else {
+            logMessage('Device does not report a primary profile (firmware before net_profile); ' +
+                       'the primary setting has no effect on it');
+        }
         for (let i = 0; i < PROFILE_COUNT; i++) {
             logMessage(`P${i + 1}: apn "${GlobalConfig['apn' + i]}", carrier ${GlobalConfig['carrier' + i]}, ` +
                        `psm ${GlobalConfig['psm' + i]}, nbiot ${GlobalConfig['nbiot' + i]}, ` +
@@ -1691,6 +1856,7 @@ async function writeAllParameters() {
         logMessage(`Wrote CONFIG (${cfgLen} bytes)`);
 
         await writeCharacteristic('NETWORK', networkEncode());
+        logMessage(`Wrote primary profile P${GlobalConfig.primaryProfile + 1}`);
         for (let i = 0; i < PROFILE_COUNT; i++) {
             logMessage(`Wrote P${i + 1}: apn "${GlobalConfig['apn' + i]}", carrier ${GlobalConfig['carrier' + i]}, ` +
                        `psm ${GlobalConfig['psm' + i]}, nbiot ${GlobalConfig['nbiot' + i]}, ` +
@@ -1905,8 +2071,12 @@ function printLogHex(bytes) {
         hexStr += ((i + 1) % LOG_RECORD_LEN === 0) ? '\n' : ' ';
     }
     if (bytes.length % LOG_RECORD_LEN !== 0) hexStr += '\n';
+    /* Follow new data only while already at the bottom, as logMessage() does. */
+    const atBottom = logArea.scrollHeight - logArea.scrollTop - logArea.clientHeight < 20;
     logArea.value += hexStr;
-    logArea.scrollTop = logArea.scrollHeight;
+    if (atBottom) {
+        logArea.scrollTop = logArea.scrollHeight;
+    }
 }
 
 function clearDeviceLogOutput() {
@@ -2212,10 +2382,22 @@ function onFirmwareFileChanged() {
  * UI components
  ****************/
 
+/**
+ * Append a timestamped line to the Communication Log.
+ *
+ * Follows new lines only while the view is already at the bottom, so
+ * scrolling up to read something is not undone by the next message.
+ *
+ * @param {string} message  Text to append.
+ */
 function logMessage(message) {
     const timestamp = new Date().toTimeString().split(' ')[0];
+    const atBottom = logContent.scrollHeight - logContent.scrollTop - logContent.clientHeight < 20;
+
     logContent.textContent += `[${timestamp}] ${message}\n`;
-    logContent.scrollTop = logContent.scrollHeight;
+    if (atBottom) {
+        logContent.scrollTop = logContent.scrollHeight;
+    }
 }
 
 function clearLog() {
