@@ -169,6 +169,10 @@ const CFG_LEN_ANALO = 28;
  * hole. Nothing shipped with the old 37-byte layout. Bytes 35..38 report the
  * device's current-measurement full scale, read only. */
 const CFG_LEN_SCHED = 51;
+/* Bytes 51..52, the offset added to GPS time. Firmware before it reports 51
+ * and accepts a 51-byte write, leaving its offset alone; the tool writes back
+ * the length it read, so each side gets the layout it knows. */
+const CFG_LEN_GNSS_TZ = 53;
 const PROFILE_COUNT = 2;
 const PROFILE_LEN     = 32;
 const PROFILE_APN_OFF = 8;
@@ -304,6 +308,17 @@ const scheduleSettings = {
         default: 0,
         min: 0,
         max: 720
+    },
+    /* CONFIG bytes 51..52, signed. On NTN the clock is set from GPS, which
+     * is UTC; this makes it local. No daylight saving -- change it at the
+     * switch. Ignored by firmware that reports a 51-byte CONFIG. */
+    gnssUtcOffset: {
+        type: "number",
+        label: "GPS time offset from UTC (minutes, 600 = +10 h, 660 = +11 h)",
+        default: 600,
+        min: -720,
+        max: 840,
+        multipleOf: 15
     }
 };
 
@@ -865,6 +880,9 @@ function validateParameterValue(value, paramDef) {
         } else if ('max' in paramDef && numValue > paramDef.max) {
             result.isValid = false;
             result.message = `Value must be at most ${paramDef.max}`;
+        } else if ('multipleOf' in paramDef && numValue % paramDef.multipleOf !== 0) {
+            result.isValid = false;
+            result.message = `Value must be a multiple of ${paramDef.multipleOf}`;
         }
     } else if (paramDef.type === 'text' && 'maxLength' in paramDef) {
         if (String(value).length > paramDef.maxLength) {
@@ -1050,6 +1068,7 @@ function renderConfigForm() {
 
                 if ('min' in param) input.min = param.min;
                 if ('max' in param) input.max = param.max;
+                if ('multipleOf' in param) input.step = param.multipleOf;
 
                 if ('readOnly' in param && param.readOnly) {
                     input.readOnly = true;
@@ -1392,6 +1411,8 @@ async function writeCharacteristic(characteristicKey, value) {
  *  45  2  load_voltage_min  be16  mV; below it, no-load-voltage
  *  47  2  volt_excl_start   be16
  *  49  2  volt_excl_end     be16
+ *  51  2  gnss_utc_offset   be16  signed minutes east of UTC, multiple of
+ *                                 15; added to GPS time (always on NTN)
  ************************************************************************/
 
 function configDecode(view) {
@@ -1432,6 +1453,12 @@ function configDecode(view) {
     GlobalConfig.loadVoltageMin = view.getUint16(45, false);
     GlobalConfig.voltExclStart = view.getUint16(47, false);
     GlobalConfig.voltExclEnd = view.getUint16(49, false);
+
+    if (view.byteLength < CFG_LEN_GNSS_TZ) {
+        return;
+    }
+
+    GlobalConfig.gnssUtcOffset = view.getInt16(51, false);
 }
 
 function configEncode(len) {
@@ -1485,6 +1512,13 @@ function configEncode(len) {
     view.setUint16(45, GlobalConfig.loadVoltageMin || 0, false);
     view.setUint16(47, GlobalConfig.voltExclStart || 0, false);
     view.setUint16(49, GlobalConfig.voltExclEnd || 0, false);
+
+    if (len < CFG_LEN_GNSS_TZ) {
+        return buffer;
+    }
+
+    /* ?? not ||: 0 is a real offset (UTC), and must not become the default. */
+    view.setInt16(51, GlobalConfig.gnssUtcOffset ?? 600, false);
 
     return buffer;
 }
@@ -1790,6 +1824,14 @@ async function readAllDeviceParameters() {
                        `anchor ${GlobalConfig.hbStart} min, ` +
                        `spread ${GlobalConfig.hbWindow} min, ` +
                        `window ${GlobalConfig.sampleWindow} s`);
+            if (configLenSeen >= CFG_LEN_GNSS_TZ) {
+                const m = GlobalConfig.gnssUtcOffset;
+                const hh = Math.floor(Math.abs(m) / 60);
+                const mm = String(Math.abs(m) % 60).padStart(2, '0');
+                logMessage(`  GPS time offset ${m} min (UTC${m < 0 ? '-' : '+'}${hh}:${mm})`);
+            } else {
+                logMessage('  GPS time offset not supported by this firmware (CONFIG 51 bytes)');
+            }
             if (GlobalConfig.batmonFullScale) {
                 logMessage(`  hardware - max measurable current ${GlobalConfig.batmonFullScale} mA`);
                 logMessage(`  alarms - mode ${GlobalConfig.dropMode} ` +
