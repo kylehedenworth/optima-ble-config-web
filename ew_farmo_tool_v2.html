@@ -13,7 +13,12 @@
         }
         .log-content {
             overflow-y: scroll;
-            height: 100px;
+            height: 25vh;          /* ~15 lines on a laptop, more on a big screen */
+            min-height: 200px;
+            resize: vertical;      /* drag the corner to resize */
+            font-family: monospace;
+            font-size: 12px;
+            line-height: 1.3;
         }
         .config_label {
             font-weight: bold;
@@ -100,11 +105,11 @@
                 <button id="eraseLogsBtn" disabled>Erase Device Logs</button>
                 <button id="saveLogsBtn">Save Logs to File</button>
             </div>
-            <textarea id="deviceLogOutput" class="log-content" readonly style="width:100%;height:120px;"></textarea>
+            <textarea id="deviceLogOutput" class="log-content" readonly style="width:100%;"></textarea>
         </div>
         </div>
     </div>
-    <span>v2 &mdash; 06/10/26</span>
+    <span>v2 &mdash; 23/10/26</span>
 
     <script src="mcumgr/cbor.js"></script>
     <script src="mcumgr/mcumgr.js"></script>
