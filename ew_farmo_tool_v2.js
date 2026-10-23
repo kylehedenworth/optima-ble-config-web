@@ -1604,18 +1604,36 @@ function networkStatusOnly(view) {
     }
 }
 
+/**
+ * Whether this write names the primary.
+ *
+ * Only when the user changed it. Firmware with boot-on-primary switches to a
+ * named primary even when it is already the primary, so naming it on every
+ * write would send a device that had failed over back to the slot that was
+ * failing, whatever field was actually changed. Commands 50 / 51 are the way
+ * to force that. Firmware that reports no primary gets the flag as before.
+ *
+ * @returns {boolean}
+ */
+function networkNamesPrimary() {
+    return networkStatus.primary === PROFILE_NOT_REPORTED ||
+           GlobalConfig.primaryProfile !== networkStatus.primary;
+}
+
 function networkEncode() {
     const buffer = new ArrayBuffer(NET_LEN);
     const view = new DataView(buffer);
     const bytes = new Uint8Array(buffer);
+    const namePrimary = networkNamesPrimary();
 
     for (let i = 0; i < PROFILE_COUNT; i++) {
         const o = i * PROFILE_LEN;
-        /* The primary bit goes on exactly one slot. The active bit is read
-         * only and never written. */
+        /* The primary bit goes on at most one slot, and only when the primary
+         * changes. The active bit is read only and never written. */
         const flags = (GlobalConfig['psm' + i] ? PROFILE_FLAG_PSM : 0) |
                       (GlobalConfig['nbiot' + i] ? PROFILE_FLAG_NBIOT : 0) |
-                      (GlobalConfig.primaryProfile === i ? PROFILE_FLAG_PRIMARY : 0);
+                      (namePrimary && GlobalConfig.primaryProfile === i
+                       ? PROFILE_FLAG_PRIMARY : 0);
 
         view.setUint8(o, (GlobalConfig['carrier' + i] || 0) & 0xFF);
         view.setUint8(o + 1, flags);
@@ -1897,8 +1915,17 @@ async function writeAllParameters() {
         await writeCharacteristic('CONFIG', configEncode(cfgLen));
         logMessage(`Wrote CONFIG (${cfgLen} bytes)`);
 
+        const namedPrimary = networkNamesPrimary();
         await writeCharacteristic('NETWORK', networkEncode());
-        logMessage(`Wrote primary profile P${GlobalConfig.primaryProfile + 1}`);
+        if (namedPrimary) {
+            logMessage(`Wrote primary profile P${GlobalConfig.primaryProfile + 1} ` +
+                       '(the device switches to it on its next send)');
+            if (networkStatus.primary !== PROFILE_NOT_REPORTED) {
+                networkStatus.primary = GlobalConfig.primaryProfile;
+            }
+        } else {
+            logMessage(`Primary profile unchanged (P${GlobalConfig.primaryProfile + 1})`);
+        }
         for (let i = 0; i < PROFILE_COUNT; i++) {
             logMessage(`Wrote P${i + 1}: apn "${GlobalConfig['apn' + i]}", carrier ${GlobalConfig['carrier' + i]}, ` +
                        `psm ${GlobalConfig['psm' + i]}, nbiot ${GlobalConfig['nbiot' + i]}, ` +
