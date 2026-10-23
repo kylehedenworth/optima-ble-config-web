@@ -155,6 +155,9 @@ const CMD_GPS_START     = 201;
 const CMD_GPS_STOP      = 202;
 const CMD_SIM_INFO      = 203;
 const CMD_CELL_STATS    = 204;
+/* Answers "imei <15 digits>" (or "imei ERR") as debug text, at once.
+ * Firmware before it answers STATE ERROR. */
+const CMD_GET_IMEI      = 205;
 
 /* Object sizes. CONFIG is 16 bytes on WR3 and 28 on the analog app; the
  * first 16 are the shared layout, so the tail is decoded only when present. */
@@ -207,6 +210,12 @@ let configLenSeen = 0;
  ************************************************************************/
 
 const readOnlyParameters = {
+    imei: {
+        type: "text",
+        label: "IMEI",
+        default: "",
+        readOnly: true
+    },
     firmwareVersion: {
         type: "text",
         label: "Firmware Version",
@@ -1337,6 +1346,7 @@ async function disconnectDevice() {
 
 function onDisconnected() {
     isConnected = false;
+    if (imeiWaiter) imeiWaiter.done(null);
     deviceService = null;
     deviceInfoService = null;
     firmwareCharacteristic = null;
@@ -1805,7 +1815,43 @@ async function refreshDeviceStatus() {
  *     Read / write all
  ************************************************************************/
 
+/* Command 205 on connect. Nothing ties an event to the command that caused
+ * it, so while a request is pending the first IMEI text, or STATE ERROR from
+ * firmware that does not know the command, is taken as its answer. */
+const IMEI_TIMEOUT_MS = 3000;
+let imeiWaiter = null;
+
+/**
+ * Ask the device for its IMEI.
+ *
+ * @returns {Promise<string|null>} The 15 digits, "ERR" if the device has none,
+ *          "OLD" if its firmware predates the command, or null on no answer.
+ */
+function requestImei() {
+    return new Promise(resolve => {
+        const done = (value) => {
+            if (!imeiWaiter) return;
+            clearTimeout(imeiWaiter.timer);
+            imeiWaiter = null;
+            resolve(value);
+        };
+        imeiWaiter = { done, timer: setTimeout(() => done(null), IMEI_TIMEOUT_MS) };
+        writeCharacteristic('COMMAND', new Uint8Array([CMD_GET_IMEI]))
+            .catch(() => done(null));
+    });
+}
+
 async function readAllDeviceParameters() {
+    const imei = await requestImei();
+    if (imei && /^\d{15}$/.test(imei)) {
+        GlobalConfig.imei = imei;
+    } else if (imei === 'OLD') {
+        GlobalConfig.imei = 'Not available (older firmware)';
+    } else {
+        GlobalConfig.imei = 'Not available';
+    }
+    logMessage('Read IMEI: ' + GlobalConfig.imei);
+
     try {
         if (firmwareCharacteristic) {
             const firmwareValue = await firmwareCharacteristic.readValue();
@@ -1972,6 +2018,9 @@ function handleEventNotification(event) {
                 if (name === undefined) {
                     const kind = state >= DEV_STATE_ERR_BASE ? 'fault' : 'state';
                     logMessage(`STATE: unknown ${kind} 0x${state.toString(16)}`);
+                } else if (state === DEV_STATE_ERROR && imeiWaiter) {
+                    /* Firmware without command 205 rejects it */
+                    imeiWaiter.done('OLD');
                 } else if (state === DEV_STATE_ACK || state === DEV_STATE_ERROR) {
                     /* A reply to the last command, not a lifecycle change */
                     logMessage(name);
@@ -2029,7 +2078,13 @@ function handleEventNotification(event) {
                 const len = view.getUint8(1);
                 const avail = Math.min(len, view.byteLength - 2);
                 const bytes = new Uint8Array(view.buffer, view.byteOffset + 2, avail);
-                logMessage(new TextDecoder().decode(bytes));
+                const text = new TextDecoder().decode(bytes);
+                const imei = /^imei (\d{15}|ERR)$/.exec(text);
+                if (imei && imeiWaiter) {
+                    imeiWaiter.done(imei[1]);     /* logged by readAllDeviceParameters() */
+                } else {
+                    logMessage(text);
+                }
                 break;
             }
 
