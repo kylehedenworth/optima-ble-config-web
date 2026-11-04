@@ -266,7 +266,7 @@ const intervalSettings = {
     }
 };
 
-/* WS, WSRG, AQ, RPC and MDS run the sensor loop on a minute heartbeat */
+/* WS, WSRG, AQ and RPC run the sensor loop on a minute heartbeat */
 const minuteHeartbeatInterval = {
     heartbeatInterval: {
         type: "number",
@@ -753,7 +753,7 @@ const deviceConfigurations = {
         product: "none",
         parameters: {
             ...readOnlyParameters,
-            heartbeatInterval: minuteHeartbeatInterval.heartbeatInterval,
+            heartbeatInterval: intervalSettings.heartbeatInterval,
             ...transmitDelaySetting,
             ...profileSettings
         },
