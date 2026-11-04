@@ -273,7 +273,7 @@ const minuteHeartbeatInterval = {
         label: "Heartbeat Interval (minutes)",
         default: 0,
         min: 5,
-        max: 1440
+        max: 120
     }
 };
 
