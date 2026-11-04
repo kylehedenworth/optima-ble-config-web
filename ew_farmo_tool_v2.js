@@ -266,7 +266,7 @@ const intervalSettings = {
     }
 };
 
-/* WS, WSRG, RPC and MDS run the sensor loop on a minute heartbeat */
+/* WS, WSRG, AQ, RPC and MDS run the sensor loop on a minute heartbeat */
 const minuteHeartbeatInterval = {
     heartbeatInterval: {
         type: "number",
@@ -782,6 +782,17 @@ const deviceConfigurations = {
         },
         actions: [ sdi12Action ]
     },
+    "AQ": {
+        name: "Air Quality Monitor",
+        product: "none",
+        parameters: {
+            ...readOnlyParameters,
+            heartbeatInterval: minuteHeartbeatInterval.heartbeatInterval,
+            ...transmitDelaySetting,
+            ...profileSettings
+        },
+        actions: [ sdi12Action ]
+    },
     "RPC": {
         name: "RPC",
         product: "none",
@@ -856,6 +867,7 @@ function getDeviceTypeFromBluetoothName(deviceName) {
         { pattern: /GS/i,       deviceType: 'GS' },
         { pattern: /RG/i,       deviceType: 'RG' },
         { pattern: /MDS/i,      deviceType: 'MDS' },
+        { pattern: /AQ/i,       deviceType: 'AQ' },
         { pattern: /WS(?!R)/i,  deviceType: 'WS' },  // Match WS but not WSRG
         { pattern: /WSR/i,      deviceType: 'WSRG' },
         { pattern: /WR/i,       deviceType: 'WR3' },
