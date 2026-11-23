@@ -1,8 +1,8 @@
 /**
  * EdenWorth Farmo configuration tool -- v2 protocol only.
  *
- * Speaks the lib/farmo_bluetooth GATT service (0xCC30-0xCC37) used by
- * ew_water_rat_v3 and ew_farmo_analog_nrf91. The legacy per-setting
+ * Speaks the Farmo Bluetooth GATT service (0xCC30-0xCC37) used by
+ * Water Rat v3 and the Farmo analog (nRF91) products. The legacy per-setting
  * characteristics (0xCC01-0xCC0B, 0xCC20-0xCC22) are NOT supported here --
  * use ew_farmo_tool.html for older firmware.
  *
@@ -46,7 +46,7 @@ function getElementById_ext(base, key) {
 }
 
 /************************************************************************
- *     Protocol constants -- lib/farmo_bluetooth
+ *     Protocol constants
  ************************************************************************/
 
 const SERVICE_UUID = "0000fe40-cc7a-482a-984a-7f2ed5b3e58b";
@@ -64,13 +64,13 @@ const CHARACTERISTIC_UUIDS = {
     REBOOT:  "0000cc37-0000-1000-8000-00805f9b34fb"
 };
 
-/* EVENT (0xCC33) byte 0 -- enum farmo_bt_evt */
+/* EVENT (0xCC33) byte 0: event type */
 const EVT_STATE  = 0x01;
 const EVT_SENSOR = 0x02;
 const EVT_DEBUG  = 0x03;
 
 /**
- * enum farmo_bt_dev_state. Faults are >= FARMO_BT_STATE_ERR_BASE.
+ * Device states. A state of DEV_STATE_ERR_BASE or more is a fault.
  * 0x00 and 0x01 are command replies rather than lifecycle states.
  */
 const DEV_STATE_ERROR = 0x00;
@@ -101,7 +101,7 @@ const DEV_STATES = {
     0x27: "Factory test fault"
 };
 
-/* enum farmo_bt_sensor. Everything but SDI12_RAW carries one be32. */
+/* Sensor types. Each carries one be32, except SDI-12 raw and the load window. */
 const SENSORS = {
     0x01: { name: "Tilt",       fmt: "be32", unit: "x10 deg" },
     0x02: { name: "Analog",     fmt: "be32", unit: "mV" },
@@ -115,12 +115,12 @@ const SENSORS = {
     0x0A: { name: "Load",       fmt: "be32", unit: "mA" },
     0x0B: { name: "Load rail",  fmt: "be32", unit: "mV" },
     0x0C: { name: "Battery",    fmt: "be32", unit: "mV" },
-    /* 17-byte composite, sent once as a measurement window closes. See
-     * FARMO_BT_SENSOR_LOAD_WINDOW in farmo_bluetooth.h. */
+    /* 17-byte composite, sent one time when a measurement window closes.
+     * See decodeLoadWindow(). */
     0x0D: { name: "Load window", fmt: "loadwindow", unit: "" }
 };
 
-/* Decode FARMO_BT_SENSOR_LOAD_WINDOW. `view` is the whole event; the payload
+/* Decode a load window sensor event. `view` is the whole event; the payload
  * starts at offset 2. Returns null if it is too short to trust. */
 function decodeLoadWindow(view) {
     if (view.byteLength < 2 + 17) {
@@ -143,12 +143,13 @@ const CMD_COMMISSION    = 3;
 const CMD_DECOMMISSION  = 4;
 const CMD_FACTORY_SKIP  = 42;
 const CMD_FACTORY_REDO  = 43;
-/* Make profile slot 1 / 2 the primary. */
-const CMD_SET_PRIMARY_P1 = 50;
-const CMD_SET_PRIMARY_P2 = 51;
+/* Use profile slot 1 / 2 on the next send. This command is not saved, and
+ * it does not change the primary profile. The NETWORK object sets the
+ * primary profile. */
+const CMD_USE_P1 = 50;
+const CMD_USE_P2 = 51;
 const CMD_CLEAR_LOG     = 102;
-/* Longest command argument the app will keep -- FA_CMD_DATA_MAX in
- * farmo_analog.h, which includes the terminator. */
+/* Longest command argument that the device keeps, terminator included. */
 const CMD_DATA_MAX      = 32;
 
 const CMD_GPS_START     = 201;
@@ -159,37 +160,19 @@ const CMD_CELL_STATS    = 204;
  * Firmware before it answers STATE ERROR. */
 const CMD_GET_IMEI      = 205;
 
-/* CONFIG has two layouts. ew_water_rat_v3, and ew_farmo_analog_nrf91 before
- * the product settings moved into product modules, use the legacy one: 16
- * bytes on WR3, 28, 51 or 53 on the analog app. Current analog app firmware
- * sends 16 common bytes followed by the product's own block, whose length
- * depends on the product (PRODUCT_CFG_LEN). The two sets of lengths do not
- * overlap, so the length read tells the layouts apart; only a 16-byte object
- * needs the selected variant to decide. */
-const CFG_LEN_BASE  = 16;
-const CFG_LEN_ANALO = 28;
-/* Bytes 28..34 carry the heart-beat schedule. Three of the four settings are
- * generic, so every ew_farmo_analog_nrf91 variant reports 35 bytes once it is
- * rebuilt; a variant still on older firmware reports 28 and decodes only up to
- * CFG_LEN_ANALO. Bytes 28..36 previously held a batmon range profile and a
- * calibration pair that the firmware never applied to a reading -- the INA228
- * calibrates from devicetree -- so they were removed rather than kept as a
- * hole. Nothing shipped with the old 37-byte layout. Bytes 35..38 report the
- * device's current-measurement full scale, read only. */
-const CFG_LEN_SCHED = 51;
-/* Bytes 51..52, the offset added to GPS time. Firmware before it reports 51
- * and accepts a 51-byte write, leaving its offset alone; the tool writes back
- * the length it read, so each side gets the layout it knows. */
-const CFG_LEN_GNSS_TZ = 53;
-/* Common part of the current layout, CFG_COMMON_LEN in
- * farmo_analog_bluetooth.c. */
+/* CONFIG layouts of the current firmware.
+ * Farmo analog: 16 common bytes, then the product's own block. The length of
+ * the block depends on the product (PRODUCT_CFG_LEN).
+ * Water Rat v3: its own 16-byte object.
+ * Older layouts are not supported. */
 const CFG_COMMON_LEN = 16;
-/* Product block after the common bytes: what each product module's
- * farmo_app_cfg_get() returns. A product with no settings sends none. */
+const WR_CFG_LEN = 16;
+/* Length of the product block after the common bytes. A product with no
+ * settings sends no block. */
 const PRODUCT_CFG_LEN = {
-    analog: 10,     /* analog.c */
-    radar:  8,      /* radar.c */
-    batmon: 28,     /* batmon.c */
+    analog: 10,
+    radar:  12,
+    batmon: 28,
     none:   0
 };
 const PROFILE_COUNT = 2;
@@ -201,9 +184,9 @@ const PROFILE_FLAG_PSM     = 0x01;
 const PROFILE_FLAG_NBIOT   = 0x02;
 const PROFILE_FLAG_PRIMARY = 0x04;   /* set on the primary slot */
 const PROFILE_FLAG_ACTIVE  = 0x08;   /* read only: the slot in use */
-/* Active profile when the device does not report one (firmware before net_profile). */
+/* Active profile when the device does not report one (older firmware). */
 const PROFILE_NOT_REPORTED = 255;
-/* Analog app STATUS (0xCC34) size -- FA_STATUS_LEN in farmo_analog.h. */
+/* Size of the Farmo analog STATUS (0xCC34) object. */
 const FA_STATUS_LEN = 9;
 const NET_LEN = PROFILE_COUNT * PROFILE_LEN;
 const WR_STATUS_LEN = 13;
@@ -277,28 +260,28 @@ const minuteHeartbeatInterval = {
     }
 };
 
-/* CONFIG bytes 8..15, legacy layout. Only WR3 still uses them. */
+/* Water Rat v3 CONFIG bytes 8..15. The device accepts a tilt angle above the
+ * tilt hysteresis (50) and below 1800, and a tilt offset from 0 to 1799. The
+ * offset is stored but not used. */
 const tiltSettings = {
     tiltAngle: {
         type: "number",
         label: "Tilt Angle (1/10th degrees)",
-        default: 0,
-        min: 0,
-        max: 1800
+        default: 300,
+        min: 51,
+        max: 1799
     },
     tiltOffset: {
         type: "number",
-        label: "Tilt Offset (1/10th degrees)",
+        label: "Tilt Offset (1/10th degrees, not used)",
         default: 0,
-        min: -1800,
-        max: 1800
+        min: 0,
+        max: 1799
     }
 };
 
-/* Radar product block bytes 0..1 (be16). Older firmware kept it in CONFIG
- * bytes 8..11, the slot ew_water_rat_v3 uses for tilt_offset. Limits match
- * TANK_DEPTH_MM_MIN/MAX in radar.h; the device rejects anything outside them
- * and keeps its previous value. */
+/* Radar product block bytes 0..1 (be16). The device rejects a value outside
+ * these limits and keeps its previous value. */
 const tankDepthSetting = {
     tankDepth: {
         type: "number",
@@ -309,10 +292,9 @@ const tankDepthSetting = {
     }
 };
 
-/* CONFIG bytes 7..13 (legacy layout: 28..32 and 51..52). Ranges match the
- * checks in farmo_analog_config.c --
- * the device rejects anything outside them and logs why, so keep the two in
- * step. */
+/* CONFIG bytes 7..13. The ranges are the same as the device limits. The
+ * device rejects a value outside them and logs the reason, so keep the two
+ * the same. */
 const scheduleSettings = {
     timeSync: {
         type: "select",
@@ -350,7 +332,7 @@ const scheduleSettings = {
     }
 };
 
-/* Batmon product block bytes 10..11 (legacy CONFIG 33..34). The device also rejects a window that does
+/* Batmon product block bytes 10..11. The device also rejects a window that does
  * not fit the sense interval currently set, so a value valid here can still be
  * refused -- lengthen the interval first. */
 const sampleWindowSetting = {
@@ -361,7 +343,7 @@ const sampleWindowSetting = {
         min: 2,
         max: 3600
     },
-    /* Batmon product block bytes 24..27 (legacy CONFIG 35..38), read only.
+    /* Batmon product block bytes 24..27, read only.
      * The largest current the fitted shunt and
      * the INA228's LSB can measure between them. Readings near it are clipped
      * and under-report, which the device also flags in alarm bit 2 -- this is
@@ -374,7 +356,7 @@ const sampleWindowSetting = {
     }
 };
 
-/* CONFIG byte 5, analog app only (legacy layout: byte 16) */
+/* CONFIG byte 5, analog app only */
 const transmitDelaySetting = {
     transmitDelay: {
         type: "number",
@@ -385,8 +367,7 @@ const transmitDelaySetting = {
     }
 };
 
-/* Product block bytes 0..5 on analog and batmon, 2..7 on radar (legacy
- * layout: CONFIG 17..22) */
+/* Product block bytes 0..5 on analog and batmon, 2..7 on radar */
 const thresholdSettings = {
     thresholdUpper: {
         type: "number",
@@ -411,7 +392,7 @@ const thresholdSettings = {
     }
 };
 
-/* CONFIG byte 6, event_tx_en, analog app only (legacy layout: byte 23) */
+/* CONFIG byte 6, event_tx_en, analog app only */
 const pulseEventSettings = {
     pulseEvent: {
         type: "boolean",
@@ -420,7 +401,7 @@ const pulseEventSettings = {
     }
 };
 
-/* Analog product block bytes 6..9 (legacy layout: CONFIG 24..27) */
+/* Analog product block bytes 6..9 */
 const dropSettings = {
     dropMode: {
         type: "select",
@@ -448,14 +429,12 @@ const dropSettings = {
     }
 };
 
-/* Batmon product block bytes 4..9 and 12..23 (legacy layout: CONFIG 21..27
- * and 39..50).
+/* Batmon product block bytes 4..9 and 12..23.
  *
  * The batmon block puts its checks where the analog block has the
  * voltage-drop triple, so these share dropSettings' keys -- only the meaning
  * differs. Mode is a bitfield there: bit 0 runs the load presence
- * check, bit 1 the battery low check. See BATMON_CHECK_* in
- * farmo_analog_config.h.
+ * check, bit 1 the battery low check, bit 2 the load voltage check.
  *
  * Both checks ship off. A threshold nobody chose would alarm on the first
  * window after commissioning. */
@@ -577,8 +556,8 @@ const profileSettings = profileParameters(PROFILE_COUNT);
 /**
  * Raw SDI-12 command. Rides CMD_READ_SENSOR with the command string as the
  * data tail; the sensor's reply comes back as an SDI12_RAW sensor event.
- * Only offered on variants built with CONFIG_ANALO_SDI12 -- elsewhere the app
- * ignores the string and just forces a sample.
+ * Only offered on the SDI-12 variants. Other variants ignore the string and
+ * take a sample.
  */
 const sdi12Action = {
     label: "Send SDI-12",
@@ -602,10 +581,12 @@ const commonActions = [
     { label: "Decommission", code: CMD_DECOMMISSION },
     { label: "SIM Info",     code: CMD_SIM_INFO },
     { label: "Cell Info",    code: CMD_CELL_STATS },
-    { label: "Set P1 primary", code: CMD_SET_PRIMARY_P1,
-      confirm: 'Make P1 the primary profile? The device switches to it on its next send.' },
-    { label: "Set P2 primary", code: CMD_SET_PRIMARY_P2,
-      confirm: 'Make P2 the primary profile? The device switches to it on its next send.' },
+    { label: "GPS Start",    code: CMD_GPS_START },
+    { label: "GPS Stop",     code: CMD_GPS_STOP },
+    { label: "Use P1 next send", code: CMD_USE_P1,
+      confirm: 'Use P1 for the next send only? This is not saved, and the primary profile does not change.' },
+    { label: "Use P2 next send", code: CMD_USE_P2,
+      confirm: 'Use P2 for the next send only? This is not saved, and the primary profile does not change.' },
     { label: "Skip factory test", code: CMD_FACTORY_SKIP,
       confirm: 'Mark factory testing as done? Takes effect on the next reboot.' },
     { label: "Redo factory test", code: CMD_FACTORY_REDO,
@@ -637,10 +618,9 @@ const deviceConfigurations = {
             ...intervalSettings,
             ...tankDepthSetting,
             ...transmitDelaySetting,
-            /* Thresholds are distance in mm, not mV, and the sense is inverted
-             * against the analog WLM: a large distance is a low water level.
-             * Drop detection is a battery-voltage detector and is left out --
-             * conf_radar.conf ships with CONFIG_VDROP_MODE=0. */
+            /* Thresholds are distance in mm, not mV, and the sense is the
+             * opposite of the analog WLM: a large distance is a low water
+             * level. The radar has no drop detection. */
             thresholdUpper: {
                 ...thresholdSettings.thresholdUpper,
                 label: "Threshold Upper (mm)"
@@ -651,19 +631,23 @@ const deviceConfigurations = {
             },
             thresholdHysteresis: {
                 ...thresholdSettings.thresholdHysteresis,
-                label: "Threshold Hysteresis (mm)"
+                label: "Threshold Hysteresis (mm, both pairs)"
+            },
+            /* Second pair, radar product block bytes 8..11. The default
+             * values cannot be crossed, so the pair is off until it is set.
+             * Alarm bits 3 and 4. */
+            thresholdUpper2: {
+                ...thresholdSettings.thresholdUpper,
+                label: "Threshold Upper 2 (mm, 32767 = off)",
+                default: 32767
+            },
+            thresholdLower2: {
+                ...thresholdSettings.thresholdLower,
+                label: "Threshold Lower 2 (mm, -32768 = off)",
+                default: -32768
             },
             ...profileSettings
         },
-        /* Commands 201/202 are in the shared handler, not behind any product
-         * ifdef, so the radar build has always answered them -- the buttons
-         * were simply never listed here. Start runs the receiver until Stop,
-         * which is what an installer needs to site a unit; the scheduled
-         * search is separate and bounded by CONFIG_GPS_FIX_TIMEOUT_S. */
-        actions: [
-            { label: "GPS Start",     code: CMD_GPS_START },
-            { label: "GPS Stop",      code: CMD_GPS_STOP },
-        ]
     },
     "BATM": {
         name: "Battery Monitor",
@@ -671,9 +655,8 @@ const deviceConfigurations = {
         parameters: {
             ...readOnlyParameters,
             heartbeatInterval: intervalSettings.heartbeatInterval,
-            /* Minutes. This variant used to build with CONFIG_SENSE_SECONDS;
-             * it no longer does, and the interval drives both the liveness
-             * check and the sample timer. */
+            /* Minutes. The interval controls both the liveness check and
+             * the sample timer. */
             sensorInterval: intervalSettings.sensorInterval,
             ...scheduleSettings,
             ...sampleWindowSetting,
@@ -692,10 +675,6 @@ const deviceConfigurations = {
             ...transmitDelaySetting,
             ...profileSettings
         },
-        actions: [
-            { label: "GPS Start",     code: CMD_GPS_START },
-            { label: "GPS Stop",      code: CMD_GPS_STOP },
-        ]
     },
     "WPS": {
         name: "WPS Pressure",
@@ -805,7 +784,7 @@ const deviceConfigurations = {
     },
     "WR3": {
         name: "WR v3",
-        /* ew_water_rat_v3: always the legacy 16-byte layout */
+        /* Water Rat v3: its own 16-byte layout */
         product: null,
         parameters: {
             ...readOnlyParameters,
@@ -816,10 +795,6 @@ const deviceConfigurations = {
             ...tiltSettings,
             ...profileSettings
         },
-        actions: [
-            { label: "GPS Start",     code: CMD_GPS_START },
-            { label: "GPS Stop",      code: CMD_GPS_STOP },
-        ],
         status: 'waterRat'
     }
 };
@@ -887,20 +862,6 @@ function getDeviceTypeFromBluetoothName(deviceName) {
     }
 
     return null;
-}
-
-/**
- * Whether the selected variant puts its tank depth in the tilt_offset slot.
- * Driven off the parameter list so a new radar variant only has to include
- * tankDepthSetting.
- */
-function variantUsesTankDepth() {
-    return 'tankDepth' in getDeviceTypeParameters(DeviceType);
-}
-
-/** Whether the selected variant carries the heart-beat schedule tail. */
-function variantUsesSchedule() {
-    return 'timeSync' in getDeviceTypeParameters(DeviceType);
 }
 
 function getDeviceTypeParameters(deviceType) {
@@ -1431,10 +1392,8 @@ async function writeCharacteristic(characteristicKey, value) {
 /************************************************************************
  *     CONFIG (0xCC30) codec, current layout
  *
- * ew_farmo_analog_nrf91: config_get()/config_set() in
- * farmo_analog_bluetooth.c, then farmo_app_cfg_get()/farmo_app_cfg_set() in
- * the product module. Big-endian. The device needs all 16 common bytes on a
- * write; it applies the product block only when the whole block is there.
+ * Farmo analog. Big-endian. The device needs all 16 common bytes on a
+ * write. It applies the product block only when the whole block is there.
  *   0  2  sense_interval  be16   minutes
  *   2  1  hb_interval            hours
  *   3  1  gps_interval           GPS every N heartbeats, 0 = off
@@ -1451,7 +1410,8 @@ async function writeCharacteristic(characteristicKey, value) {
  * Product blocks, offsets from byte 16:
  *   analog (10)  0 upper, 2 lower, 4 hyst (be16, signed, mV)
  *                6 vdrop_mode, 7 vdrop_thresh (be16, mV), 9 vdrop_samples
- *   radar (8)    0 tank_depth (be16, mm), 2 upper, 4 lower, 6 hyst (be16, mm)
+ *   radar (12)   0 tank_depth (be16, mm), 2 upper, 4 lower, 6 hyst,
+ *                8 upper2, 10 lower2 (be16, signed, mm)
  *   batmon (28)  0 upper, 2 lower, 4 hyst (be16, signed)
  *                6 check mode (bit0 current, bit1 battery, bit2 volts)
  *                7 battery low (be16, mV), 9 check samples
@@ -1468,29 +1428,20 @@ function variantProduct() {
     return config ? config.product : null;
 }
 
-/** CONFIG length the selected variant sends with the current layout. */
+/** CONFIG length the selected variant sends. */
 function variantConfigLen() {
-    return CFG_COMMON_LEN + PRODUCT_CFG_LEN[variantProduct()];
+    const product = variantProduct();
+    return product === null ? WR_CFG_LEN : CFG_COMMON_LEN + PRODUCT_CFG_LEN[product];
 }
 
 /**
- * Whether a CONFIG object of `len` bytes uses the legacy layout. WR3 always
- * does; on the analog app the legacy lengths never occur in the current
- * layout.
- */
-function configIsLegacy(len) {
-    return variantProduct() === null ||
-           [CFG_LEN_ANALO, CFG_LEN_SCHED, CFG_LEN_GNSS_TZ].includes(len);
-}
-
-/**
- * Whether the device's CONFIG matches the selected variant. A current-layout
- * object of another length carries another product's block -- the wrong
- * variant is selected -- and writing it would hand the device the wrong
- * encoding.
+ * Whether the device's CONFIG matches the selected variant. An object of a
+ * different length contains the block of a different product. Either the
+ * selected variant is wrong, or the firmware is older than this tool. If the
+ * tool writes the object, the device gets the wrong encoding.
  */
 function configMatchesVariant(len) {
-    return configIsLegacy(len) || len === variantConfigLen();
+    return len === variantConfigLen();
 }
 
 function configDecodeProduct(view) {
@@ -1526,6 +1477,8 @@ function configDecodeProduct(view) {
         GlobalConfig.thresholdUpper = view.getInt16(p + 2, false);
         GlobalConfig.thresholdLower = view.getInt16(p + 4, false);
         GlobalConfig.thresholdHysteresis = view.getInt16(p + 6, false);
+        GlobalConfig.thresholdUpper2 = view.getInt16(p + 8, false);
+        GlobalConfig.thresholdLower2 = view.getInt16(p + 10, false);
         break;
     case 'batmon':
         GlobalConfig.thresholdUpper = view.getInt16(p, false);
@@ -1587,6 +1540,10 @@ function configEncodeProduct(len) {
         view.setInt16(p + 2, GlobalConfig.thresholdUpper || 0, false);
         view.setInt16(p + 4, GlobalConfig.thresholdLower || 0, false);
         view.setInt16(p + 6, GlobalConfig.thresholdHysteresis || 0, false);
+        /* Use ?? and not ||. A distance of 0 is a valid value, and must not
+         * change to the off value. */
+        view.setInt16(p + 8, GlobalConfig.thresholdUpper2 ?? 32767, false);
+        view.setInt16(p + 10, GlobalConfig.thresholdLower2 ?? -32768, false);
         break;
     case 'batmon':
         view.setInt16(p, GlobalConfig.thresholdUpper || 0, false);
@@ -1613,102 +1570,43 @@ function configEncodeProduct(len) {
 }
 
 function configDecode(view) {
-    if (configIsLegacy(view.byteLength)) {
-        configDecodeLegacy(view);
+    if (variantProduct() === null) {
+        configDecodeWaterRat(view);
     } else {
         configDecodeProduct(view);
     }
 }
 
 function configEncode(len) {
-    return configIsLegacy(len) ? configEncodeLegacy(len) : configEncodeProduct(len);
+    return variantProduct() === null ? configEncodeWaterRat(len) : configEncodeProduct(len);
 }
 
 /************************************************************************
- *     CONFIG (0xCC30) codec, legacy layout
+ *     CONFIG (0xCC30) codec, Water Rat v3
  *
- * ew_water_rat_v3, and ew_farmo_analog_nrf91 before the product settings
- * moved into product modules. Big-endian. Bytes 0..15 are shared by both
- * apps; 16..52 exist only on ew_farmo_analog_nrf91.
+ * Big-endian.
  *   0  2  sense_interval  be16   minutes
  *   2  1  hb_interval            hours
  *   3  1  gps_interval           GPS every N heartbeats, 0 = off
  *   4  1  commissioned           0/1
  *   5  3  reserved
- *   8  4  tilt_offset     be32   signed, x10 degrees
- *                                (radar WLM stores tank depth in mm here)
+ *   8  4  tilt_offset     be32   signed, x10 degrees, not used
  *  12  4  tilt_angle      be32   signed, x10 degrees
- *  16  1  trans_delay            minutes
- *  17  2  analog_upper    be16   signed
- *  19  2  analog_lower    be16   signed
- *  21  2  analog_hyst     be16   signed
- *  23  1  pulse_en               0/1
- *  24  1  vdrop_mode             analog: 0=off, 1=cumulative, 2=constant
- *                                batmon: bit0 current, bit1 battery, bit2 volts
- *  25  2  vdrop_thresh    be16   signed, mV
- *  27  1  vdrop_samples
- *  28  1  time_sync_en           0/1, align the heartbeat to the clock
- *  29  2  hb_start        be16   minutes after local midnight
- *  31  2  hb_window       be16   random spread per send, minutes
- *  33  2  sample_window   be16   measurement window seconds, batmon only
- *  35  4  batmon_full_scale be32  mA, READ ONLY, 0 if no current sensor
- *  39  2  load_current_min  be16  signed, mA; below it, no-load-current
- *  41  2  cur_excl_start    be16  minutes after local midnight
- *  43  2  cur_excl_end      be16  equal to start means no exclusion
- *  45  2  load_voltage_min  be16  mV; below it, no-load-voltage
- *  47  2  volt_excl_start   be16
- *  49  2  volt_excl_end     be16
- *  51  2  gnss_utc_offset   be16  signed minutes east of UTC, multiple of
- *                                 15; added to GPS time (always on NTN)
  ************************************************************************/
 
-function configDecodeLegacy(view) {
+function configDecodeWaterRat(view) {
+    if (!configMatchesVariant(view.byteLength)) {
+        return;
+    }
     GlobalConfig.sensorInterval = view.getUint16(0, false);
     GlobalConfig.heartbeatInterval = view.getUint8(2);
     GlobalConfig.gpsInterval = view.getUint8(3);
     GlobalConfig.commissioned = view.getUint8(4) === 1;
     GlobalConfig.tiltOffset = view.getInt32(8, false);
-    /* Same four bytes -- the radar WLM keeps its tank depth in this slot */
-    GlobalConfig.tankDepth = GlobalConfig.tiltOffset;
     GlobalConfig.tiltAngle = view.getInt32(12, false);
-
-    if (view.byteLength < CFG_LEN_ANALO) {
-        return;
-    }
-
-    GlobalConfig.transmitDelay = view.getUint8(16);
-    GlobalConfig.thresholdUpper = view.getInt16(17, false);
-    GlobalConfig.thresholdLower = view.getInt16(19, false);
-    GlobalConfig.thresholdHysteresis = view.getInt16(21, false);
-    GlobalConfig.pulseEvent = view.getUint8(23) === 1;
-    GlobalConfig.dropMode = view.getUint8(24);
-    GlobalConfig.dropThreshold = view.getInt16(25, false);
-    GlobalConfig.dropSamples = view.getUint8(27);
-
-    if (view.byteLength < CFG_LEN_SCHED) {
-        return;
-    }
-
-    GlobalConfig.timeSync = view.getUint8(28);
-    GlobalConfig.hbStart = view.getUint16(29, false);
-    GlobalConfig.hbWindow = view.getUint16(31, false);
-    GlobalConfig.sampleWindow = view.getUint16(33, false);
-    GlobalConfig.batmonFullScale = view.getInt32(35, false);
-    GlobalConfig.loadCurrentMin = view.getInt16(39, false);
-    GlobalConfig.curExclStart = view.getUint16(41, false);
-    GlobalConfig.curExclEnd = view.getUint16(43, false);
-    GlobalConfig.loadVoltageMin = view.getUint16(45, false);
-    GlobalConfig.voltExclStart = view.getUint16(47, false);
-    GlobalConfig.voltExclEnd = view.getUint16(49, false);
-
-    if (view.byteLength < CFG_LEN_GNSS_TZ) {
-        return;
-    }
-
-    GlobalConfig.gnssUtcOffset = view.getInt16(51, false);
 }
 
-function configEncodeLegacy(len) {
+function configEncodeWaterRat(len) {
     const buffer = new ArrayBuffer(len);
     const view = new DataView(buffer);
 
@@ -1717,62 +1615,14 @@ function configEncodeLegacy(len) {
     view.setUint8(3, GlobalConfig.gpsInterval || 0);
     view.setUint8(4, GlobalConfig.commissioned ? 1 : 0);
     /* 5..7 reserved, left zero */
-    view.setInt32(8, variantUsesTankDepth() ? (GlobalConfig.tankDepth || 0)
-                                            : (GlobalConfig.tiltOffset || 0), false);
+    view.setInt32(8, GlobalConfig.tiltOffset || 0, false);
     view.setInt32(12, GlobalConfig.tiltAngle || 0, false);
-
-    if (len < CFG_LEN_ANALO) {
-        return buffer;
-    }
-
-    view.setUint8(16, GlobalConfig.transmitDelay || 0);
-    view.setInt16(17, GlobalConfig.thresholdUpper || 0, false);
-    view.setInt16(19, GlobalConfig.thresholdLower || 0, false);
-    view.setInt16(21, GlobalConfig.thresholdHysteresis || 0, false);
-    view.setUint8(23, GlobalConfig.pulseEvent ? 1 : 0);
-    view.setUint8(24, GlobalConfig.dropMode || 0);
-    view.setInt16(25, GlobalConfig.dropThreshold || 0, false);
-    view.setUint8(27, GlobalConfig.dropSamples || 0);
-
-    if (len < CFG_LEN_SCHED) {
-        return buffer;
-    }
-
-    view.setUint8(28, GlobalConfig.timeSync ? 1 : 0);
-    view.setUint16(29, GlobalConfig.hbStart || 0, false);
-    view.setUint16(31, GlobalConfig.hbWindow || 0, false);
-    /* Not every variant with the schedule tail exposes a measurement window.
-     * The tool reads CONFIG before it writes, so this normally carries the
-     * device's own value straight back. Fall back to the firmware default
-     * rather than 0, which is out of range and would make the device log a
-     * rejection for a field the user never touched. */
-    view.setUint16(33, GlobalConfig.sampleWindow || 60, false);
-    /* Read only on the device, which ignores these bytes. Echoed back so a
-     * read-then-write round trip is byte-identical. */
-    view.setInt32(35, GlobalConfig.batmonFullScale || 0, false);
-
-    /* The device rejects the whole group if any window lands outside a day,
-     * so these go back as read unless the user changed them. */
-    view.setInt16(39, GlobalConfig.loadCurrentMin || 0, false);
-    view.setUint16(41, GlobalConfig.curExclStart || 0, false);
-    view.setUint16(43, GlobalConfig.curExclEnd || 0, false);
-    view.setUint16(45, GlobalConfig.loadVoltageMin || 0, false);
-    view.setUint16(47, GlobalConfig.voltExclStart || 0, false);
-    view.setUint16(49, GlobalConfig.voltExclEnd || 0, false);
-
-    if (len < CFG_LEN_GNSS_TZ) {
-        return buffer;
-    }
-
-    /* ?? not ||: 0 is a real offset (UTC), and must not become the default. */
-    view.setInt16(51, GlobalConfig.gnssUtcOffset ?? 600, false);
 
     return buffer;
 }
 
 /** Log what configDecode() read from a CONFIG object of `len` bytes. */
 function logConfig(len) {
-    const legacy = configIsLegacy(len);
     const product = variantProduct();
 
     if (!DeviceType) {
@@ -1780,47 +1630,45 @@ function logConfig(len) {
         return;
     }
 
-    logMessage(`Read CONFIG (${len} bytes, ${legacy ? 'legacy' : 'current'} layout): ` +
+    if (!configMatchesVariant(len)) {
+        logMessage(`Read CONFIG (${len} bytes)`);
+        logMessage(`WARNING: ${DeviceType} expects a ${variantConfigLen()}-byte CONFIG. ` +
+                   'The CONFIG length is not correct for this variant. The variant can be wrong, ' +
+                   'or the firmware can be older than this tool. The tool did not decode the ' +
+                   'settings, and writing is disabled.');
+        return;
+    }
+
+    logMessage(`Read CONFIG (${len} bytes): ` +
                `sense ${GlobalConfig.sensorInterval}, hb ${GlobalConfig.heartbeatInterval}, ` +
                `gps ${GlobalConfig.gpsInterval}, commissioned ${GlobalConfig.commissioned}`);
 
-    if (!configMatchesVariant(len)) {
-        logMessage(`WARNING: ${DeviceType} expects a ${variantConfigLen()}-byte CONFIG. ` +
-                   'Wrong variant selected? Product settings not read, and writing is disabled.');
-        return;
-    }
-
-    if (legacy && len < CFG_LEN_ANALO) {
+    if (product === null) {
         logMessage(`  tilt - angle ${GlobalConfig.tiltAngle}, offset ${GlobalConfig.tiltOffset}`);
-        return;
-    }
-
-    if (variantUsesTankDepth()) {
-        logMessage(`  radar - tank depth ${GlobalConfig.tankDepth} mm`);
-    }
-    if (legacy || product !== 'none') {
-        logMessage(`  thresholds - upper ${GlobalConfig.thresholdUpper}, lower ${GlobalConfig.thresholdLower}, hyst ${GlobalConfig.thresholdHysteresis}`);
-    }
-    if (legacy ? !variantUsesTankDepth() : product === 'analog') {
-        logMessage(`  drop - mode ${GlobalConfig.dropMode}, threshold ${GlobalConfig.dropThreshold}, samples ${GlobalConfig.dropSamples}`);
-    }
-
-    if (legacy && len < CFG_LEN_SCHED) {
         return;
     }
 
     logMessage(`  schedule - time sync ${GlobalConfig.timeSync}, ` +
                `anchor ${GlobalConfig.hbStart} min, ` +
                `spread ${GlobalConfig.hbWindow} min`);
-    if (!legacy || len >= CFG_LEN_GNSS_TZ) {
-        const m = GlobalConfig.gnssUtcOffset;
-        const hh = Math.floor(Math.abs(m) / 60);
-        const mm = String(Math.abs(m) % 60).padStart(2, '0');
-        logMessage(`  GPS time offset ${m} min (UTC${m < 0 ? '-' : '+'}${hh}:${mm})`);
-    } else {
-        logMessage('  GPS time offset not supported by this firmware (CONFIG 51 bytes)');
+    const m = GlobalConfig.gnssUtcOffset;
+    const hh = Math.floor(Math.abs(m) / 60);
+    const mm = String(Math.abs(m) % 60).padStart(2, '0');
+    logMessage(`  GPS time offset ${m} min (UTC${m < 0 ? '-' : '+'}${hh}:${mm})`);
+
+    if (product === 'radar') {
+        logMessage(`  radar - tank depth ${GlobalConfig.tankDepth} mm`);
     }
-    if (legacy ? GlobalConfig.batmonFullScale : product === 'batmon') {
+    if (product !== 'none') {
+        logMessage(`  thresholds - upper ${GlobalConfig.thresholdUpper}, lower ${GlobalConfig.thresholdLower}, hyst ${GlobalConfig.thresholdHysteresis}`);
+    }
+    if (product === 'radar') {
+        logMessage(`  thresholds 2 - upper ${GlobalConfig.thresholdUpper2}, lower ${GlobalConfig.thresholdLower2}`);
+    }
+    if (product === 'analog') {
+        logMessage(`  drop - mode ${GlobalConfig.dropMode}, threshold ${GlobalConfig.dropThreshold}, samples ${GlobalConfig.dropSamples}`);
+    }
+    if (product === 'batmon') {
         logMessage(`  window ${GlobalConfig.sampleWindow} s`);
         logMessage(`  hardware - max measurable current ${GlobalConfig.batmonFullScale} mA`);
         logMessage(`  alarms - mode ${GlobalConfig.dropMode} ` +
@@ -1834,8 +1682,7 @@ function logConfig(len) {
 /************************************************************************
  *     NETWORK (0xCC31) codec
  *
- * One 32-byte block per profile, each carrying its own APN. Firmware side:
- * lib/net_profile in optima_firmware.
+ * One 32-byte block per profile, each carrying its own APN.
  *  +0   1  carrier                0=GLOBAL, 1=AU, 2=SKYLO
  *  +1   1  flags                  bit0 psm_allowed, bit1 nbiot_allowed,
  *                                 bit2 primary, bit3 active (read only)
@@ -1849,7 +1696,7 @@ function logConfig(len) {
 /**
  * Decode NETWORK into GlobalConfig.
  *
- * Firmware before net_profile sets neither the primary nor the active bit.
+ * Older firmware sets neither the primary nor the active bit.
  * Then primaryProfile stays at P1 and the active profile is not reported;
  * writing the primary bit back to such a device is harmless, it ignores it.
  *
@@ -1962,11 +1809,9 @@ function networkEncode() {
  *   0   1  alarm_bits
  *   1   1  profile_bits      bit0 = P2 active (clear = P1),
  *                              bit1 = running on the fallback (active != primary).
- *                              Before net_profile, bit0 meant "NTN profile active". 
  *   2  10  modem_error_code[10]
  *  12   1  device_error_code
- *
- * The analog app leaves status_get NULL, so its read returns empty.
+
  ************************************************************************/
 
 const WR_ALARM_BITS = [
@@ -2018,7 +1863,7 @@ function profileName(slot) {
  * Active and fallback come from the STATUS profile byte, which both apps lay
  * out the same: bit0 = P2 active, bit1 = running on the fallback. The primary
  * comes from the last NETWORK read, the only place the device reports it;
- * firmware before net_profile does not, so it shows as not reported.
+ * older firmware does not, so it shows as not reported.
  *
  * @param {number} bits  STATUS byte 1.
  * @returns {string} HTML, two lines, each with a trailing <br/>.
@@ -2036,9 +1881,34 @@ const FA_ALARM_BITS = [
     "Commissioning", "Heartbeat", "Retry", "Rebooted", "P2 active", "Modem error"
 ];
 
+/* Product alarm bits, STATUS byte 2, for each product. */
+const APP_ALARM_BITS = {
+    analog: ["Invalid", "Above upper", "Below lower", "Voltage drop"],
+    radar:  ["Invalid", "Above upper", "Below lower", "Above upper 2", "Below lower 2"],
+    power:  ["Load absent", "Battery low", "Clipped", "Truncated", "Load voltage low"],
+    pulse:  ["Pulse"],
+    sdi12:  ["Invalid"],
+    relay:  ["Relay state unknown"]
+};
+const VARIANT_APP_ALARMS = {
+    WLM: 'analog', WPS: 'analog', EFS: 'analog', WLMR: 'radar', BATM: 'power',
+    PC: 'pulse', GS: 'pulse', RG: 'pulse',
+    MDS: 'sdi12', WS: 'sdi12', WSRG: 'sdi12', AQ: 'sdi12', RPC: 'relay'
+};
+
+/** Names of the product alarm bits set in `bits`, for the selected variant. */
+function appAlarmText(bits) {
+    const names = APP_ALARM_BITS[VARIANT_APP_ALARMS[DeviceType]] || [];
+    const hex = `0x${bits.toString(16).padStart(2, '0').toUpperCase()}`;
+    const set = [];
+    for (let i = 0; i < 8; i++) {
+        if (bits & (1 << i)) set.push(names[i] || `bit ${i}`);
+    }
+    return `${hex}${set.length ? ' (' + set.join(', ') + ')' : ''}`;
+}
+
 /**
- * Decode the analog app's STATUS object. Layout: farmo_analog_get_status()
- * in farmo_analog.h.
+ * Decode the Farmo analog STATUS object.
  *
  * @param {DataView} view  STATUS as read.
  * @returns {string} HTML for the status panel.
@@ -2064,7 +1934,7 @@ function statusDecodeAnalog(view) {
 
     let html = `Alarms: ${active.length ? active.join(', ') : 'none'}<br/>`;
     html += profileStatusLine(profile);
-    html += `App alarms: 0x${appAlarms.toString(16).padStart(2, '0').toUpperCase()}<br/>`;
+    html += `App alarms: ${appAlarmText(appAlarms)}<br/>`;
     html += `Signal: RSRP ${rsrp === 255 ? 'unknown' : '-' + rsrp + ' dBm'}, ` +
             `RSRQ ${rsrq === 255 ? 'unknown' : '-' + rsrq + ' dB'}<br/>`;
     html += `Battery: ${battery} mV<br/>`;
@@ -2183,7 +2053,7 @@ async function readAllDeviceParameters() {
             logMessage(`Primary profile P${GlobalConfig.primaryProfile + 1}, active ` +
                        `${profileName(networkStatus.active)}`);
         } else {
-            logMessage('Device does not report a primary profile (firmware before net_profile); ' +
+            logMessage('Device does not report a primary profile (older firmware); ' +
                        'the primary setting has no effect on it');
         }
         for (let i = 0; i < PROFILE_COUNT; i++) {
